@@ -1,6 +1,6 @@
 {
-  "version": "2.0.0",
-  "build": 2,
-  "download_url": "https://github.com/MrAron7w7/music_player/releases/latest",
-  "notes": "Reproductor rediseñado, biblioteca con tarjetas, descargas mejoradas y corrección del botón Siguiente."
+  "version": "2.0.1",
+  "build": 3,
+  "download_url": "https://github.com/MrAron7w7/music_player/releases/download/v2.0.1/app-release.apk",
+  "notes": "Mejoras de rendimiento, búsqueda más rápida, carátulas y reproducción optimizada."
 }

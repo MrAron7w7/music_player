@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    audio_service resuelve los iconos de la notificación por nombre en tiempo de
+    ejecución (getIdentifier), por lo que el shrinker de recursos del build
+    release no puede ver la referencia y los elimina. Sin estos drawables,
+    setSmallIcon(0) lanza IllegalArgumentException al iniciar la reproducción
+    y la app se cierra.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_music,@drawable/audio_service_*" />

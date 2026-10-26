@@ -1,0 +1,45 @@
+name: music_app
+description: Simple Music – reproductor de música personal, simple y oscuro.
+publish_to: 'none'
+version: 1.0.0+1
+environment:
+  sdk: ^3.13.4
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+  ytmusicapi_dart: ^2.4.1
+  youtube_explode_dart:
+    git:
+      url: https://github.com/its-ashutosh-pathak/youtube_explode_dart.git
+      ref: edad2760cc7998bcc18013dc9880c052ad32598f
+  just_audio: ^0.9.42
+  audio_service: ^0.18.15
+  audio_session: ^0.1.21
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.5
+  go_router: ^14.6.2
+  google_fonts: ^6.2.1
+  path_provider: ^2.1.5
+  permission_handler: ^11.3.1
+  intl: ^0.20.2
+  uuid: ^4.5.1
+  flutter_animate: ^4.5.0
+  shimmer: ^3.0.0
+  palette_generator_plus: ^1.0.0
+  connectivity_plus: ^7.3.2
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+
+
+

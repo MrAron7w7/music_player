@@ -4,15 +4,19 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/constants/app_config.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/notification_permissions.dart';
 import '../../data/repositories/music_repository.dart';
+import '../../data/services/update_service.dart';
 import '../../providers/cache_providers.dart';
 import '../../providers/downloads_providers.dart';
 import '../../providers/library_providers.dart';
 import '../../providers/music_providers.dart';
 import '../../providers/player_providers.dart';
 import '../../providers/settings_providers.dart';
+import '../../providers/update_providers.dart';
+import '../widgets/update_dialog.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -107,46 +111,6 @@ class SettingsScreen extends ConsumerWidget {
         .settings
         .put('audioQuality', selected.name);
     ref.read(musicRepositoryProvider).quality = selected;
-  }
-
-  Future<void> _clearHistory(BuildContext context, WidgetRef ref) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Limpiar historial'),
-        content: const Text(
-          'Se eliminarán las canciones escuchadas recientemente.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Limpiar'),
-          ),
-        ],
-      ),
-    );
-    if (confirm == true) {
-      await ref.read(localRepositoryProvider).clearHistory();
-      ref.invalidate(historyProvider);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Historial eliminado')));
-      }
-    }
-  }
-
-  Future<void> _clearSearchHistory(BuildContext context, WidgetRef ref) async {
-    await ref.read(localRepositoryProvider).settings.delete('searchHistory');
-    ref.read(searchHistoryProvider.notifier).state = [];
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Historial de búsquedas eliminado')),
-      );
-    }
   }
 
   Future<void> _notificationPermission(
@@ -289,34 +253,6 @@ class SettingsScreen extends ConsumerWidget {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('Descargas eliminadas')));
-  }
-
-  Future<void> _clearStats(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Borrar estadísticas'),
-        content: const Text(
-          'Se eliminarán los conteos, minutos escuchados y el historial de estadísticas.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Borrar'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await ref.read(statsServiceProvider).clear();
-    ref.invalidate(statsProvider);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Estadísticas eliminadas')));
   }
 
   static String _formatBytes(int bytes) {
@@ -702,13 +638,17 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ],
             ),
+            const _SettingsSection(
+              title: 'ACTUALIZACIONES',
+              children: [_UpdateCheckTile()],
+            ),
             _SettingsSection(
               title: 'ACERCA DE',
               children: [
                 const _SettingsTile(
                   icon: Icons.music_note_rounded,
-                  title: 'Simple Music',
-                  subtitle: 'Versión 2.0.0',
+                  title: AppConfig.appName,
+                  subtitle: 'Versión ${AppConfig.displayVersion}',
                 ),
                 _SettingsTile(
                   icon: Icons.feedback_outlined,
@@ -730,6 +670,69 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _UpdateCheckTile extends ConsumerStatefulWidget {
+  const _UpdateCheckTile();
+
+  @override
+  ConsumerState<_UpdateCheckTile> createState() => _UpdateCheckTileState();
+}
+
+class _UpdateCheckTileState extends ConsumerState<_UpdateCheckTile> {
+  bool _checking = false;
+
+  Future<void> _check() async {
+    if (_checking) return;
+    setState(() => _checking = true);
+    try {
+      final update = await ref.read(updateServiceProvider).checkForUpdate();
+      if (!mounted) return;
+      if (update == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Estás en la última versión (${AppConfig.displayVersion}).',
+            ),
+          ),
+        );
+        return;
+      }
+      await showUpdateDialog(context, update);
+    } on UpdateException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo comprobar si hay actualizaciones.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsTile(
+      icon: Icons.system_update_rounded,
+      title: 'Buscar actualizaciones',
+      subtitle: _checking
+          ? 'Comprobando…'
+          : 'Instalada ${AppConfig.displayVersion}',
+      trailing: _checking
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.chevron_right_rounded),
+      onTap: _checking ? null : _check,
     );
   }
 }

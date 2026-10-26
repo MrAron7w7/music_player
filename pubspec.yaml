@@ -1,7 +1,7 @@
 name: music_app
 description: Simple Music – reproductor de música personal, simple y oscuro.
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.0+2
 environment:
   sdk: ^3.13.4
 dependencies:
@@ -32,6 +32,8 @@ dependencies:
   shimmer: ^3.0.0
   palette_generator_plus: ^1.0.0
   connectivity_plus: ^7.3.2
+  http: ^1.6.0
+  url_launcher: ^6.3.3
 dev_dependencies:
   flutter_test:
     sdk: flutter

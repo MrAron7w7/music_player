@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/widgets/home_widget_sync.dart';
 import 'presentation/widgets/permission_onboarding.dart';
+import 'presentation/widgets/update_check_host.dart';
 import 'providers/player_providers.dart';
 import 'router/app_router.dart';
 
@@ -24,7 +25,9 @@ class MusicApp extends ConsumerWidget {
         themeAnimationCurve: Curves.easeInOutCubic,
         routerConfig: appRouter,
         builder: (context, child) => HomeWidgetSync(
-          child: PermissionOnboarding(child: child ?? const SizedBox.shrink()),
+          child: PermissionOnboarding(
+            child: UpdateCheckHost(child: child ?? const SizedBox.shrink()),
+          ),
         ),
       ),
     );

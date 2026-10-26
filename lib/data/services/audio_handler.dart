@@ -100,6 +100,12 @@ class MusicAudioHandler extends BaseAudioHandler
   String? _lastEnrichedSeedId;
   bool _wasPlayingBeforeInterruption = false;
   bool _ducking = false;
+
+  /// Estado que el usuario quiere conservar (play/pausa). No se debe usar
+  /// `_active.playing` para decidir si seguir reproduciendo al cambiar de
+  /// canción: durante una carga el player se detiene temporalmente y eso
+  /// convertía un Next rápido en una pausa inesperada.
+  bool _playIntent = false;
   String? _errorMessage;
   AudioServiceRepeatMode _repeatMode = AudioServiceRepeatMode.none;
   AudioServiceShuffleMode _shuffleMode = AudioServiceShuffleMode.none;
@@ -131,6 +137,10 @@ class MusicAudioHandler extends BaseAudioHandler
           autoPlayRelated);
   bool get hasPrevious => _currentIndex > 0;
   double get currentVolume => _active.volume;
+
+  /// Solo la intención explícita del usuario decide si el próximo cambio de
+  /// canción debe seguir sonando. Así una pausa durante la carga no se pierde.
+  bool get _shouldKeepPlaying => _playIntent;
 
   Duration get currentPosition =>
       _needsLoad ? _resumePosition : _active.position;
@@ -328,6 +338,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
   void _publishPlaybackError(Object error, {String? message}) {
     _isResolvingStream = false;
+    _playIntent = false;
     _needsLoad = true;
     _resumePosition = _active.position;
     _cancelCrossfade(stopFading: true);
@@ -423,6 +434,7 @@ class MusicAudioHandler extends BaseAudioHandler
     if (_currentIndex < 0 || _currentIndex >= _queueSongs.length) return;
     final song = _queueSongs[_currentIndex];
     final requestId = ++_playRequestId;
+    _playIntent = autoPlay;
     _needsLoad = true;
     _isResolvingStream = true;
     _errorMessage = null;
@@ -468,7 +480,7 @@ class MusicAudioHandler extends BaseAudioHandler
       _recordedPlay = false;
       queue.add(_queueSongs.map(_mediaItem).toList());
       _broadcastState();
-      if (autoPlay) {
+      if (autoPlay && _playIntent) {
         await _startPlayback(recordPlay: true);
       } else {
         _playingController.add(false);
@@ -483,6 +495,7 @@ class MusicAudioHandler extends BaseAudioHandler
 
   Future<void> _startPlayback({bool recordPlay = false}) async {
     if (_currentIndex < 0 || _currentIndex >= _queueSongs.length) return;
+    _playIntent = true;
     if (_needsLoad) {
       await _loadCurrent(autoPlay: true, position: _resumePosition);
       return;
@@ -585,6 +598,7 @@ class MusicAudioHandler extends BaseAudioHandler
         return;
       }
     }
+    _playIntent = false;
     _playingController.add(false);
     _broadcastState();
   }
@@ -721,6 +735,7 @@ class MusicAudioHandler extends BaseAudioHandler
     _fadingPlayer = old;
     _preparedNextIndex = null;
     _currentIndex = nextIndex;
+    _playIntent = true;
     _recordedPlay = false;
     _lastPlayedSeconds = -1;
     _pendingListeningSeconds = 0;
@@ -925,7 +940,7 @@ class MusicAudioHandler extends BaseAudioHandler
         mediaItem.add(null);
         return;
       }
-      final wasPlaying = _active.playing;
+      final wasPlaying = _shouldKeepPlaying;
       _cancelCrossfade(stopFading: true);
       _queueSongs.removeAt(index);
       if (index >= _queueSongs.length) {
@@ -1077,6 +1092,7 @@ class MusicAudioHandler extends BaseAudioHandler
   Future<void> pause() => _pauseInternal();
 
   Future<void> _pauseInternal({bool fromInterruption = false}) async {
+    _playIntent = false;
     _cancelCrossfade(stopFading: true);
     await _active.pause();
     if (!fromInterruption) {
@@ -1093,6 +1109,7 @@ class MusicAudioHandler extends BaseAudioHandler
   @override
   Future<void> stop() async {
     _playRequestId++;
+    _playIntent = false;
     _isResolvingStream = false;
     if (!_needsLoad) _resumePosition = _active.position;
     _needsLoad = true;
@@ -1122,20 +1139,19 @@ class MusicAudioHandler extends BaseAudioHandler
   @override
   Future<void> skipToNext() async {
     if (_queueSongs.isEmpty || _currentIndex < 0) return;
-    final wasPlaying = _active.playing;
     _cancelCrossfade(stopFading: true);
     await _flushListening();
     if (_currentIndex < _queueSongs.length - 1) {
       _currentIndex++;
-      await _loadCurrent(autoPlay: wasPlaying);
+      await _loadCurrent(autoPlay: _shouldKeepPlaying);
     } else if (_repeatMode == AudioServiceRepeatMode.all) {
       _currentIndex = 0;
-      await _loadCurrent(autoPlay: wasPlaying);
+      await _loadCurrent(autoPlay: _shouldKeepPlaying);
     } else if (autoPlayRelated && currentSong != null) {
       final added = await _ensureSmartQueue(currentSong!, force: true);
       if (added) {
         _currentIndex++;
-        await _loadCurrent(autoPlay: wasPlaying);
+        await _loadCurrent(autoPlay: _shouldKeepPlaying);
       }
     }
   }
@@ -1147,7 +1163,6 @@ class MusicAudioHandler extends BaseAudioHandler
       await seek(Duration.zero);
       return;
     }
-    final wasPlaying = _active.playing;
     _cancelCrossfade(stopFading: true);
     await _flushListening();
     if (_currentIndex > 0) {
@@ -1158,7 +1173,7 @@ class MusicAudioHandler extends BaseAudioHandler
       await seek(Duration.zero);
       return;
     }
-    await _loadCurrent(autoPlay: wasPlaying);
+    await _loadCurrent(autoPlay: _shouldKeepPlaying);
   }
 
   @override

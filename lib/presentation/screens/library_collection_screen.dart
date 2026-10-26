@@ -76,10 +76,8 @@ class _LibraryCollectionScreenState
     final playback = ref
         .read(audioHandlerProvider)
         .playSongs(songs, startIndex: index, shuffle: shuffle);
-    unawaited(requestPlaybackNotificationPermission(context: context));
-    await ref.read(localRepositoryProvider).addHistory(songs[index]);
-    ref.invalidate(historyProvider);
     if (mounted) context.push('/now-playing');
+    unawaited(requestPlaybackNotificationPermission(context: context));
     await playback;
   }
 

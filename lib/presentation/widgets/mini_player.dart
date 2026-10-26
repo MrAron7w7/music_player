@@ -7,6 +7,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/utils/artwork_url.dart';
 import '../../providers/player_providers.dart';
 import 'album_art.dart';
 
@@ -27,13 +28,11 @@ void _prefetchUpcomingArtwork(
     final uri = item.artUri;
     if (uri == null || !_prefetchedArtworkIds.add(item.id)) continue;
     if (!context.mounted) return;
+    final artUrl =
+        artworkUrlForSize(uri.toString(), targetSize: 768) ?? uri.toString();
     unawaited(
       precacheImage(
-        CachedNetworkImageProvider(
-          uri.toString(),
-          maxWidth: 512,
-          maxHeight: 512,
-        ),
+        CachedNetworkImageProvider(artUrl, maxWidth: 768),
         context,
       ).catchError((_) {
         _prefetchedArtworkIds.remove(item.id);
@@ -69,12 +68,16 @@ class MiniPlayer extends ConsumerWidget {
         }
       },
     );
-    final song = ref.watch(currentSongProvider).valueOrNull;
+    final song = ref.watch(
+      currentSongProvider.select((state) => state.valueOrNull),
+    );
     final theme = Theme.of(context);
     final accent =
-        ref.watch(albumArtColorProvider).valueOrNull ??
+        ref.watch(albumArtColorProvider.select((state) => state.valueOrNull)) ??
         theme.colorScheme.primary;
-    final playing = ref.watch(isPlayingProvider).valueOrNull ?? false;
+    final playing = ref.watch(
+      isPlayingProvider.select((state) => state.valueOrNull ?? false),
+    );
     final error = ref.watch(playbackErrorProvider);
     final processingState = ref.watch(
       playbackStateProvider.select(

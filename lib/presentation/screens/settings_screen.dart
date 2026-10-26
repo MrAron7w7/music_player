@@ -13,6 +13,7 @@ import '../../providers/cache_providers.dart';
 import '../../providers/downloads_providers.dart';
 import '../../providers/library_providers.dart';
 import '../../providers/music_providers.dart';
+import '../../providers/navigation_providers.dart';
 import '../../providers/player_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/update_providers.dart';
@@ -353,7 +354,11 @@ class SettingsScreen extends ConsumerWidget {
       (total, entry) => total + entry.bytes,
     );
     final cacheLimit = ref.watch(audioCacheLimitProvider);
-    final usage = ref.watch(cacheUsageProvider).valueOrNull;
+    // El escaneo de caché recorre audio, portadas y metadatos. Solo tiene
+    // sentido cuando Ajustes está visible.
+    final usage = ref.watch(selectedTabProvider) == 3
+        ? ref.watch(cacheUsageProvider).valueOrNull
+        : null;
     return Scaffold(
       body: SafeArea(
         bottom: false,

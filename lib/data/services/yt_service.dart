@@ -93,6 +93,7 @@ class YtService {
       filter: type,
       limit: 20,
     )).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
+    ttl: const Duration(minutes: 10),
     persistTtl: const Duration(hours: 6),
     persistMaxEntries: 120,
     encode: (value) => value,
@@ -115,6 +116,7 @@ class YtService {
                 .map((e) => SongModel.fromJson(Map<String, dynamic>.from(e)))
                 .where((s) => s.id.isNotEmpty)
                 .toList(),
+        ttl: const Duration(minutes: 10),
         persistTtl: const Duration(hours: 6),
         persistMaxEntries: 120,
         encode: (songs) => songs.map((song) => song.toJson()).toList(),

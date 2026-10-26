@@ -12,7 +12,9 @@ class MusicApp extends ConsumerWidget {
   const MusicApp({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final albumColor = ref.watch(albumArtColorProvider).valueOrNull;
+    final albumColor = ref.watch(
+      albumArtColorProvider.select((state) => state.valueOrNull),
+    );
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: AppTheme.themeMode,
       builder: (context, mode, _) => MaterialApp.router(
@@ -21,7 +23,7 @@ class MusicApp extends ConsumerWidget {
         theme: AppTheme.light(albumColor),
         darkTheme: AppTheme.dark(albumColor),
         themeMode: mode,
-        themeAnimationDuration: const Duration(milliseconds: 360),
+        themeAnimationDuration: const Duration(milliseconds: 300),
         themeAnimationCurve: Curves.easeInOutCubic,
         routerConfig: appRouter,
         builder: (context, child) => HomeWidgetSync(

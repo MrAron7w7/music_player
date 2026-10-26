@@ -20,8 +20,9 @@ class MusicRepository {
     String id, {
     AudioQuality quality = AudioQuality.high,
     bool forceRefresh = false,
+    bool requireWatchPage = false,
   }) async {
-    final key = '$id:${quality.name}';
+    final key = '$id:${quality.name}:${requireWatchPage ? 'watch' : 'fast'}';
     if (forceRefresh) {
       _streamCache.remove(key);
       _inFlight.remove(key);
@@ -39,6 +40,7 @@ class MusicRepository {
     final request = _resolveAudioStreamUrl(
       id,
       quality,
+      requireWatchPage: requireWatchPage,
     ).timeout(const Duration(seconds: 24), onTimeout: () => null);
     _inFlight[key] = request;
     try {
@@ -70,17 +72,41 @@ class MusicRepository {
     }
   }
 
-  Future<Uri?> _resolveAudioStreamUrl(String id, AudioQuality quality) async {
+  Future<StreamManifest?> _manifest(
+    String id, {
+    required bool requireWatchPage,
+  }) async {
+    try {
+      final manifest = await explode.videos.streams
+          .getManifest(id, requireWatchPage: requireWatchPage)
+          .timeout(const Duration(seconds: 11));
+      return manifest.audioOnly.isEmpty ? null : manifest;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Uri?> _resolveAudioStreamUrl(
+    String id,
+    AudioQuality quality, {
+    bool requireWatchPage = false,
+  }) async {
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
-        // VisionOS client in the pinned youtube_explode_dart fix is currently
-        // the reliable anonymous client for regular YouTube audio streams.
-        final m = await explode.videos.streams
-            .getManifest(id, requireWatchPage: true)
-            .timeout(const Duration(seconds: 11));
-        final audio = m.audioOnly;
-        if (audio.isEmpty) return null;
-        final streams = audio.toList()
+        // El cliente VisionOS no necesita la watch page para resolver el
+        // manifiesto, y saltarla ahorra una petición (~300 ms). Si falla, se
+        // reintenta con la watch page, que es la ruta más compatible.
+        var manifest = await _manifest(id, requireWatchPage: requireWatchPage);
+        if (manifest == null && !requireWatchPage) {
+          manifest = await _manifest(id, requireWatchPage: true);
+        }
+        if (manifest == null) {
+          if (attempt == 0) {
+            await Future<void>.delayed(const Duration(milliseconds: 450));
+          }
+          continue;
+        }
+        final streams = manifest.audioOnly.toList()
           ..sort(
             (a, b) =>
                 b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond),
@@ -101,11 +127,9 @@ class MusicRepository {
   }
 
   void invalidateStream(String id, {AudioQuality? quality}) {
-    if (quality == null) {
-      _streamCache.removeWhere((key, _) => key.startsWith('$id:'));
-    } else {
-      _streamCache.remove('$id:${quality.name}');
-    }
+    final prefix = quality == null ? '$id:' : '$id:${quality.name}';
+    _streamCache.removeWhere((key, _) => key.startsWith(prefix));
+    _inFlight.removeWhere((key, _) => key.startsWith(prefix));
   }
 
   Future<List<SongModel>> searchSongs(String q, {int limit = 20}) =>

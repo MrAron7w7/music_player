@@ -10,7 +10,6 @@ import '../../core/utils/helpers.dart';
 import '../../core/utils/notification_permissions.dart';
 import '../../data/models/song_model.dart';
 import '../../providers/downloads_providers.dart';
-import '../../providers/library_providers.dart';
 import '../../providers/player_providers.dart';
 import '../widgets/album_art.dart';
 import '../widgets/empty_state.dart';
@@ -30,10 +29,8 @@ class DownloadsScreen extends ConsumerWidget {
     final playback = ref
         .read(audioHandlerProvider)
         .playSongs(songs, startIndex: index, shuffle: shuffle);
-    unawaited(requestPlaybackNotificationPermission(context: context));
-    await ref.read(localRepositoryProvider).addHistory(songs[index]);
-    ref.invalidate(historyProvider);
     if (context.mounted) context.push('/now-playing');
+    unawaited(requestPlaybackNotificationPermission(context: context));
     await playback;
   }
 

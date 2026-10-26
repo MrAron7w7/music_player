@@ -10,6 +10,7 @@ import '../../data/models/song_model.dart';
 import '../../providers/downloads_providers.dart';
 import '../../providers/home_providers.dart';
 import '../../providers/library_providers.dart';
+import '../../providers/navigation_providers.dart';
 import '../../providers/player_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../widgets/album_art.dart';
@@ -41,10 +42,8 @@ class HomeScreen extends ConsumerWidget {
     final playback = ref
         .read(audioHandlerProvider)
         .playSongs(songs, startIndex: index, shuffle: false);
-    unawaited(requestPlaybackNotificationPermission(context: context));
-    await ref.read(localRepositoryProvider).addHistory(songs[index]);
-    ref.invalidate(historyProvider);
     if (context.mounted) context.push('/now-playing');
+    unawaited(requestPlaybackNotificationPermission(context: context));
     await playback;
   }
 
@@ -52,6 +51,7 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final offline = ref.watch(offlineModeProvider);
+    final active = ref.watch(selectedTabProvider) == 0;
     final downloadedIds = (ref.watch(downloadsProvider).valueOrNull ?? const [])
         .map((entry) => entry.song.id)
         .toSet();
@@ -64,11 +64,11 @@ class HomeScreen extends ConsumerWidget {
         ? favorites.where((song) => downloadedIds.contains(song.id)).toList()
         : favorites;
     final playlists = ref.watch(playlistsProvider);
-    final recommendations = offline
+    final recommendations = offline || !active
         ? const AsyncValue<List<SongModel>>.data(<SongModel>[])
         : ref.watch(homeRecommendationsProvider);
     final forYou = recommendations.valueOrNull ?? const <SongModel>[];
-    final spotlight = offline
+    final spotlight = offline || !active
         ? null
         : ref.watch(artistSpotlightProvider).valueOrNull;
     final forYouIds = forYou.map((song) => song.id).toSet();
@@ -77,7 +77,9 @@ class HomeScreen extends ConsumerWidget {
         : spotlight.songs
               .where((song) => !forYouIds.contains(song.id))
               .toList();
-    final albums = offline ? null : ref.watch(homeRecentAlbumsProvider);
+    final albums = offline || !active
+        ? null
+        : ref.watch(homeRecentAlbumsProvider);
     final hour = DateTime.now().hour;
 
     return Scaffold(

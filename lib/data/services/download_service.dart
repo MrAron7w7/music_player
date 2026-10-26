@@ -81,6 +81,13 @@ class DownloadService {
   final _changes = StreamController<List<DownloadEntry>>.broadcast();
   final _progressChanges = StreamController<Map<String, double>>.broadcast();
 
+  /// Un cliente compartido evita abrir una conexión nueva por descarga.
+  final HttpClient _client = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 15)
+    ..idleTimeout = const Duration(seconds: 25);
+
+  DateTime _lastProgressEmit = DateTime.fromMillisecondsSinceEpoch(0);
+
   Stream<List<DownloadEntry>> get stream => _changes.stream;
   Stream<Map<String, double>> get progressStream => _progressChanges.stream;
 
@@ -175,12 +182,12 @@ class DownloadService {
     final request = _download(song, quality);
     _inFlight[song.id] = request;
     _progress[song.id] = 0;
-    _emitProgress();
+    _emitProgress(force: true);
     return request.whenComplete(() {
       _inFlight.remove(song.id);
       _progress.remove(song.id);
       _cancelled.remove(song.id);
-      _emitProgress();
+      _emitProgress(force: true);
     });
   }
 
@@ -200,13 +207,9 @@ class DownloadService {
 
     final target = _fileFor(song.id);
     final temp = File('${target.path}.part');
-    HttpClient? client;
     IOSink? sink;
     try {
-      client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 15)
-        ..idleTimeout = const Duration(seconds: 25);
-      final request = await client.getUrl(uri);
+      final request = await _client.getUrl(uri);
       request.headers.set(
         HttpHeaders.userAgentHeader,
         'com.google.android.exoplayer:exoplayer:2.19.1',
@@ -275,7 +278,7 @@ class DownloadService {
       await box.put(song.id, entry.toJson());
       _progress[song.id] = 1;
       _emit();
-      _emitProgress();
+      _emitProgress(force: true);
       return entry;
     } on DownloadException {
       rethrow;
@@ -291,7 +294,6 @@ class DownloadService {
           await sink.close();
         } catch (_) {}
       }
-      client?.close(force: true);
     }
   }
 
@@ -337,7 +339,7 @@ class DownloadService {
     await _delete(_fileFor(songId));
     await _delete(File('${_fileFor(songId).path}.part'));
     _emit();
-    _emitProgress();
+    _emitProgress(force: true);
   }
 
   Future<void> deleteAll() async {
@@ -355,7 +357,7 @@ class DownloadService {
       debugPrint('No se pudieron borrar todas las descargas: $error');
     }
     _emit();
-    _emitProgress();
+    _emitProgress(force: true);
   }
 
   Future<void> _delete(File file) async {
@@ -365,9 +367,19 @@ class DownloadService {
   }
 
   void _emit() => _changes.add(entries);
-  void _emitProgress() => _progressChanges.add(progress);
+
+  void _emitProgress({bool force = false}) {
+    final now = DateTime.now();
+    if (!force &&
+        now.difference(_lastProgressEmit) < const Duration(milliseconds: 100)) {
+      return;
+    }
+    _lastProgressEmit = now;
+    _progressChanges.add(progress);
+  }
 
   Future<void> dispose() async {
+    _client.close(force: true);
     await _changes.close();
     await _progressChanges.close();
   }

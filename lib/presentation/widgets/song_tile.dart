@@ -108,18 +108,18 @@ class SongTile extends ConsumerWidget {
   }
 
   Future<void> _play(BuildContext context, WidgetRef ref) async {
+    final playback = ref
+        .read(audioHandlerProvider)
+        .playSongs(
+          playQueue ?? [song],
+          startIndex: playQueue == null ? 0 : startIndex,
+          shuffle: false,
+        );
+    // La navegación no espera a Hive ni a resolver el stream: la portada y la
+    // metadata aparecen de inmediato y el audio termina de cargar en paralelo.
+    if (context.mounted) context.push('/now-playing');
+    unawaited(requestPlaybackNotificationPermission(context: context));
     try {
-      final playback = ref
-          .read(audioHandlerProvider)
-          .playSongs(
-            playQueue ?? [song],
-            startIndex: playQueue == null ? 0 : startIndex,
-            shuffle: false,
-          );
-      unawaited(requestPlaybackNotificationPermission(context: context));
-      await ref.read(localRepositoryProvider).addHistory(song);
-      ref.invalidate(historyProvider);
-      if (context.mounted) context.push('/now-playing');
       await playback;
     } catch (error) {
       if (context.mounted) {
@@ -251,15 +251,9 @@ class SongTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isFavorite = ref
-        .watch(favoritesProvider)
-        .any((item) => item.id == song.id);
-    final downloads = ref.watch(downloadsProvider).valueOrNull;
-    final service = ref.read(downloadServiceProvider);
-    final downloaded = downloads == null
-        ? service.isDownloaded(song.id)
-        : downloads.any((entry) => entry.song.id == song.id);
-    final progress = ref.watch(downloadProgressProvider).valueOrNull?[song.id];
+    final isFavorite = ref.watch(isFavoriteProvider(song.id));
+    final downloaded = ref.watch(isDownloadedProvider(song.id));
+    final progress = ref.watch(downloadProgressForProvider(song.id));
     final downloading = progress != null && progress < 1;
 
     return Padding(
@@ -367,7 +361,11 @@ class SongTile extends ConsumerWidget {
                             case 'download':
                               _download(context, ref);
                             case 'cancel-download':
-                              unawaited(service.delete(song.id));
+                              unawaited(
+                                ref
+                                    .read(downloadServiceProvider)
+                                    .delete(song.id),
+                              );
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
@@ -376,7 +374,11 @@ class SongTile extends ConsumerWidget {
                                 );
                               }
                             case 'remove-download':
-                              unawaited(service.delete(song.id));
+                              unawaited(
+                                ref
+                                    .read(downloadServiceProvider)
+                                    .delete(song.id),
+                              );
                           }
                         },
                         itemBuilder: (_) => [

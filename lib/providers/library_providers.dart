@@ -11,6 +11,11 @@ final localRepositoryProvider = Provider<LocalRepository>(
 final favoritesProvider = Provider<List<SongModel>>(
   (ref) => ref.watch(localRepositoryProvider).getFavorites(),
 );
+final isFavoriteProvider = Provider.autoDispose.family<bool, String>(
+  (ref, songId) => ref.watch(
+    favoritesProvider.select((songs) => songs.any((song) => song.id == songId)),
+  ),
+);
 final playlistsProvider = Provider<List<PlaylistModel>>(
   (ref) => ref.watch(localRepositoryProvider).getPlaylists(),
 );
@@ -23,6 +28,5 @@ final historyProvider = Provider<List<SongModel>>((ref) {
   // avance ocurre desde la notificación o al terminar una pista. Escuchar sus
   // cambios mantiene la biblioteca sincronizada sin acoplarla al motor.
   ref.watch(historyChangesProvider);
-  ref.watch(currentSongProvider.select((state) => state.valueOrNull?.id));
   return ref.watch(localRepositoryProvider).getHistory();
 });

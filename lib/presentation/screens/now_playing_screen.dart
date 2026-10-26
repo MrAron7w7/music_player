@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/utils/artwork_url.dart';
 import '../../core/utils/helpers.dart';
 import '../../data/models/song_model.dart';
 import '../../providers/downloads_providers.dart';
@@ -31,24 +32,30 @@ class NowPlayingScreen extends ConsumerStatefulWidget {
 
 class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   bool _lyricsOpen = false;
-  double _dragOffset = 0;
+  final ValueNotifier<double> _dragOffset = ValueNotifier<double>(0);
+
+  @override
+  void dispose() {
+    _dragOffset.dispose();
+    super.dispose();
+  }
 
   void _onVerticalDragUpdate(DragUpdateDetails details) {
-    final next = _dragOffset + details.delta.dy;
+    final next = _dragOffset.value + details.delta.dy;
     if (next <= 0) {
-      setState(() => _dragOffset = 0);
+      _dragOffset.value = 0;
       return;
     }
-    setState(() => _dragOffset = math.min(next, 240));
+    _dragOffset.value = math.min(next, 240);
   }
 
   void _onVerticalDragEnd(DragEndDetails details) {
     final velocity = details.primaryVelocity ?? 0;
-    if (_dragOffset > 130 || velocity > 700) {
+    if (_dragOffset.value > 130 || velocity > 700) {
       Navigator.maybePop(context);
       return;
     }
-    setState(() => _dragOffset = 0);
+    _dragOffset.value = 0;
   }
 
   Future<void> _showLyrics(SongModel song) async {
@@ -627,7 +634,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final song = ref.watch(currentSongProvider).valueOrNull;
+    final song = ref.watch(
+      currentSongProvider.select((state) => state.valueOrNull),
+    );
     if (song == null) {
       return const Scaffold(
         body: EmptyState(
@@ -640,17 +649,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final accent =
-        ref.watch(albumArtColorProvider).valueOrNull ?? colors.primary;
-    final favorites = ref.watch(favoritesProvider);
-    final isFavorite = favorites.any((item) => item.id == song.id);
-    final downloads = ref.watch(downloadsProvider).valueOrNull;
-    final downloadEntry = downloads
-        ?.where((entry) => entry.song.id == song.id)
-        .firstOrNull;
-    final downloadProgress = ref
-        .watch(downloadProgressProvider)
-        .valueOrNull?[song.id];
-    final isDownloading = downloadProgress != null && downloadProgress < 1;
+        ref.watch(albumArtColorProvider.select((state) => state.valueOrNull)) ??
+        colors.primary;
+    final isFavorite = ref.watch(isFavoriteProvider(song.id));
+    final downloadEntry = ref.watch(downloadEntryForProvider(song.id));
     final bluetooth = ref.watch(bluetoothAudioDeviceProvider);
     final processingState = ref.watch(
       playbackStateProvider.select(
@@ -684,8 +686,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
         statusBarColor: Colors.transparent,
         systemNavigationBarColor: immersiveBase,
       ),
-      child: Transform.translate(
-        offset: Offset(0, _dragOffset),
+      child: ValueListenableBuilder<double>(
+        valueListenable: _dragOffset,
+        builder: (context, offset, child) =>
+            Transform.translate(offset: Offset(0, offset), child: child),
         child: Scaffold(
           backgroundColor: immersiveBase,
           body: Stack(
@@ -694,12 +698,21 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
               if (song.artworkUrl != null)
                 RepaintBoundary(
                   child: ImageFiltered(
-                    imageFilter: ImageFilter.blur(sigmaX: 70, sigmaY: 70),
+                    // Un desenfoque menor mantiene la estética y evita que la
+                    // GPU trabaje de más en pantallas grandes.
+                    imageFilter: ImageFilter.blur(sigmaX: 36, sigmaY: 36),
                     child: CachedNetworkImage(
-                      imageUrl: song.thumbnailUrl ?? song.artworkUrl!,
+                      imageUrl:
+                          artworkUrlForSize(
+                            song.thumbnailUrl ?? song.artworkUrl,
+                            targetSize: 320,
+                          ) ??
+                          song.artworkUrl!,
                       fit: BoxFit.cover,
                       memCacheWidth: 320,
-                      memCacheHeight: 480,
+                      maxWidthDiskCache: 320,
+                      filterQuality: FilterQuality.low,
+                      fadeInDuration: const Duration(milliseconds: 180),
                       errorWidget: (context, url, error) =>
                           ColoredBox(color: immersiveBase),
                     ),
@@ -941,10 +954,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                   foregroundColor: Colors.white,
                                 ),
                                 const SizedBox(height: 4),
-                                _QualityBadge(
+                                _DownloadAwareQualityBadge(
+                                  songId: song.id,
                                   label: qualityLabel,
-                                  downloading: isDownloading,
-                                  progress: downloadProgress,
                                 ),
                                 const SizedBox(height: 16),
                                 const PlayerControls(
@@ -1021,6 +1033,23 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _DownloadAwareQualityBadge extends ConsumerWidget {
+  const _DownloadAwareQualityBadge({required this.songId, required this.label});
+
+  final String songId;
+  final String label;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final progress = ref.watch(downloadProgressForProvider(songId));
+    return _QualityBadge(
+      label: label,
+      downloading: progress != null && progress < 1,
+      progress: progress,
     );
   }
 }

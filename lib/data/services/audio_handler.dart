@@ -8,11 +8,13 @@ import 'dart:math' as math;
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../models/song_model.dart';
 import '../repositories/music_repository.dart';
+import '../../core/utils/artwork_url.dart';
 import 'download_service.dart';
 import 'listening_stats_service.dart';
 
@@ -62,6 +64,7 @@ class MusicAudioHandler extends BaseAudioHandler
       _bindPlayer(player);
     }
     _listenAudioSession();
+    _listenConnectivity();
     _ticker = Timer.periodic(
       const Duration(milliseconds: 750),
       (_) => _onTick(),
@@ -115,12 +118,29 @@ class MusicAudioHandler extends BaseAudioHandler
   Timer? _fadeTimer;
   AudioPlayer? _fadingPlayer;
   bool _crossfading = false;
+  bool _preparingCrossfade = false;
+  bool _startingCrossfade = false;
   int? _preparedNextIndex;
   Set<AudioDevice> _lastDevices = {};
   bool _devicesInitialized = false;
   StreamSubscription? _interruptionSubscription;
   StreamSubscription? _noisySubscription;
   StreamSubscription? _devicesSubscription;
+  StreamSubscription? _connectivitySubscription;
+  bool? _online;
+  bool? _lastPlayingEmitted;
+  Duration? _lastDurationEmitted;
+  String _lastStateSignature = '';
+  DateTime _lastStateAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  // La cola serializada se reutiliza entre guardados periódicos; solo se
+  // reescribe cuando la cola cambia de verdad.
+  List<Map<String, dynamic>>? _sessionQueueJson;
+  bool _sessionQueueDirty = true;
+  int? _lastPersistedIndex;
+  int? _lastPersistedPositionMs;
+  int _sessionWriteId = 0;
+  Future<void> _sessionWrite = Future<void>.value();
 
   bool get isResolvingStream => _isResolvingStream;
   bool get hasRestoredSession => _restoredSession;
@@ -173,16 +193,28 @@ class MusicAudioHandler extends BaseAudioHandler
   // Inicialización de audio, auriculares y foco
   // ---------------------------------------------------------------------------
 
+  void _emitPlaying(bool value) {
+    if (_lastPlayingEmitted == value) return;
+    _lastPlayingEmitted = value;
+    _playingController.add(value);
+  }
+
+  void _emitDuration(Duration? value) {
+    if (_lastDurationEmitted == value) return;
+    _lastDurationEmitted = value;
+    _durationController.add(value);
+  }
+
   void _bindPlayer(AudioPlayer player) {
     player.positionStream.listen((position) {
       if (identical(player, _active)) _positionController.add(position);
     });
     player.durationStream.listen((duration) {
-      if (identical(player, _active)) _durationController.add(duration);
+      if (identical(player, _active)) _emitDuration(duration);
     });
     player.playingStream.listen((playing) {
       if (identical(player, _active) && !_crossfading) {
-        _playingController.add(playing);
+        _emitPlaying(playing);
       }
       if (identical(player, _active)) _broadcastState();
     });
@@ -233,8 +265,9 @@ class MusicAudioHandler extends BaseAudioHandler
     _devicesSubscription = _session.devicesStream.listen((devices) {
       final hadHeadphones = _hasHeadphones(_lastDevices);
       final hasHeadphones = _hasHeadphones(devices);
+      final changed = !setEquals(devices, _lastDevices);
       _lastDevices = devices;
-      _devicesController.add(Set.unmodifiable(devices));
+      if (changed) _devicesController.add(Set.unmodifiable(devices));
       if (!_devicesInitialized) {
         _devicesInitialized = true;
         return;
@@ -255,6 +288,24 @@ class MusicAudioHandler extends BaseAudioHandler
     });
   }
 
+  void _listenConnectivity() {
+    try {
+      _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+        results,
+      ) {
+        _online = results.any((item) => item != ConnectivityResult.none);
+      }, onError: (_) {});
+      unawaited(() async {
+        try {
+          final result = await Connectivity().checkConnectivity();
+          _online = result.any((item) => item != ConnectivityResult.none);
+        } catch (_) {
+          // Si el plugin falla, el propio stream de audio decide.
+        }
+      }());
+    } catch (_) {}
+  }
+
   bool _hasHeadphones(Set<AudioDevice> devices) => devices.any(
     (device) =>
         device.isOutput &&
@@ -269,18 +320,23 @@ class MusicAudioHandler extends BaseAudioHandler
   // Estado para la notificación
   // ---------------------------------------------------------------------------
 
-  MediaItem _mediaItem(SongModel song, {Duration? duration}) => MediaItem(
-    id: song.id,
-    title: song.title,
-    artist: song.artists.join(', '),
-    album: song.album,
-    artUri: song.artworkUrl == null ? null : Uri.tryParse(song.artworkUrl!),
-    duration: duration ?? song.duration,
-    extras: {
-      if (song.thumbnailUrl != null) 'fallbackArtworkUrl': song.thumbnailUrl,
-      'song': song.toJson(),
-    },
-  );
+  MediaItem _mediaItem(SongModel song, {Duration? duration}) {
+    // La notificación sólo necesita una portada pequeña; la UI usa la versión
+    // de alta resolución desde `extras['song']`.
+    final artUrl = artworkUrlForSize(song.artworkUrl, targetSize: 480);
+    return MediaItem(
+      id: song.id,
+      title: song.title,
+      artist: song.artists.join(', '),
+      album: song.album,
+      artUri: artUrl == null ? null : Uri.tryParse(artUrl),
+      duration: duration ?? song.duration,
+      extras: {
+        if (song.thumbnailUrl != null) 'fallbackArtworkUrl': song.thumbnailUrl,
+        'song': song.toJson(),
+      },
+    );
+  }
 
   SongModel? _songFromMediaItem(MediaItem item) {
     final raw = item.extras?['song'];
@@ -298,7 +354,7 @@ class MusicAudioHandler extends BaseAudioHandler
     );
   }
 
-  void _broadcastState() {
+  void _broadcastState({bool force = false}) {
     final hasError = _errorMessage != null;
     final processing = hasError
         ? AudioProcessingState.error
@@ -311,19 +367,30 @@ class MusicAudioHandler extends BaseAudioHandler
             ProcessingState.ready => AudioProcessingState.ready,
             ProcessingState.completed => AudioProcessingState.completed,
           };
+    final playing = _active.playing || _crossfading;
+    final signature =
+        '$hasError|$_errorMessage|$processing|$playing|$_currentIndex|'
+        '$_repeatMode|$_shuffleMode|$_crossfading|$_needsLoad|'
+        '$_isResolvingStream|${_active.speed}';
+    final now = DateTime.now();
+    if (!force &&
+        signature == _lastStateSignature &&
+        now.difference(_lastStateAt) < const Duration(milliseconds: 350)) {
+      return;
+    }
+    _lastStateSignature = signature;
+    _lastStateAt = now;
     playbackState.add(
       playbackState.value.copyWith(
         controls: [
           MediaControl.skipToPrevious,
-          _active.playing || _crossfading
-              ? MediaControl.pause
-              : MediaControl.play,
+          playing ? MediaControl.pause : MediaControl.play,
           MediaControl.skipToNext,
         ],
         systemActions: const {MediaAction.seek},
         androidCompactActionIndices: const [0, 1, 2],
         processingState: processing,
-        playing: _active.playing || _crossfading,
+        playing: playing,
         updatePosition: _needsLoad ? _resumePosition : _active.position,
         bufferedPosition: _active.bufferedPosition,
         speed: _active.speed,
@@ -349,7 +416,8 @@ class MusicAudioHandler extends BaseAudioHandler
       _ => message ?? 'No se pudo reproducir esta canción. Inténtalo de nuevo.',
     };
     _errorMessage = friendly;
-    _playingController.add(false);
+    _lastStateSignature = '';
+    _emitPlaying(false);
     playbackState.add(
       playbackState.value.copyWith(
         processingState: AudioProcessingState.error,
@@ -367,9 +435,12 @@ class MusicAudioHandler extends BaseAudioHandler
   // ---------------------------------------------------------------------------
 
   Future<bool> _hasInternet() async {
+    final known = _online;
+    if (known != null) return known;
     try {
       final result = await Connectivity().checkConnectivity();
-      return result.any((item) => item != ConnectivityResult.none);
+      _online = result.any((item) => item != ConnectivityResult.none);
+      return _online!;
     } catch (_) {
       // Si el plugin falla, dejamos que el propio stream sea quien decida.
       return true;
@@ -380,6 +451,7 @@ class MusicAudioHandler extends BaseAudioHandler
     SongModel song, {
     required AudioQuality preferred,
     bool forceRefresh = false,
+    bool requireWatchPage = false,
     bool allowNetwork = true,
   }) async {
     final downloaded = downloads?.fileFor(song.id);
@@ -416,6 +488,7 @@ class MusicAudioHandler extends BaseAudioHandler
             song.id,
             quality: quality,
             forceRefresh: forceRefresh || quality != preferred,
+            requireWatchPage: requireWatchPage || quality != preferred,
           )
           .timeout(remaining, onTimeout: () => null);
       if (uri != null) {
@@ -444,9 +517,14 @@ class MusicAudioHandler extends BaseAudioHandler
     mediaItem.add(_mediaItem(song));
 
     try {
-      await _active.stop();
-      await _active.setVolume(1);
+      // Detener el player anterior y resolver el stream en paralelo: el stop
+      // tarda milisegundos y no debe sumarse a la latencia de la red.
+      final preparation = Future.wait<void>([
+        _active.stop().catchError((_) {}),
+        _active.setVolume(1).catchError((_) {}),
+      ]);
       final source = await _sourceFor(song, preferred: repository.quality);
+      await preparation;
       if (requestId != _playRequestId) return;
 
       try {
@@ -459,6 +537,7 @@ class MusicAudioHandler extends BaseAudioHandler
           song,
           preferred: AudioQuality.medium,
           forceRefresh: true,
+          requireWatchPage: true,
         );
         if (requestId != _playRequestId) return;
         await _active.setAudioSource(retry);
@@ -478,14 +557,13 @@ class MusicAudioHandler extends BaseAudioHandler
       _lastPlayedSeconds = -1;
       _pendingListeningSeconds = 0;
       _recordedPlay = false;
-      queue.add(_queueSongs.map(_mediaItem).toList());
       _broadcastState();
       if (autoPlay && _playIntent) {
         await _startPlayback(recordPlay: true);
       } else {
-        _playingController.add(false);
+        _emitPlaying(false);
       }
-      _persistSession();
+      unawaited(_persistSession());
       unawaited(_prefetchUpcoming());
     } catch (error) {
       if (requestId != _playRequestId) return;
@@ -518,12 +596,12 @@ class MusicAudioHandler extends BaseAudioHandler
         return;
       }
       await _active.play();
-      _playingController.add(true);
+      _emitPlaying(true);
       if (recordPlay && !_recordedPlay) {
         _recordedPlay = true;
         final song = currentSong;
         if (song != null) {
-          unawaited(stats?.recordPlay(song) ?? Future.value());
+          _recordPlay(song);
           unawaited(_addHistory(song));
         }
       }
@@ -552,29 +630,33 @@ class MusicAudioHandler extends BaseAudioHandler
     final cache = repository.audioCache;
     if (cache == null) return;
     final requestId = _playRequestId;
-    for (
-      var offset = 1;
-      offset <= 2 && _currentIndex + offset < _queueSongs.length;
-      offset++
-    ) {
-      final song = _queueSongs[_currentIndex + offset];
-      if (downloads?.isDownloaded(song.id) == true ||
-          cache.cachedFile(song.id) != null) {
-        continue;
+    try {
+      for (
+        var offset = 1;
+        offset <= 2 && _currentIndex + offset < _queueSongs.length;
+        offset++
+      ) {
+        final song = _queueSongs[_currentIndex + offset];
+        if (downloads?.isDownloaded(song.id) == true ||
+            cache.cachedFile(song.id) != null) {
+          continue;
+        }
+        final uri = await repository.getAudioStreamUrl(
+          song.id,
+          quality: repository.quality,
+        );
+        if (requestId != _playRequestId) return;
+        if (uri != null) unawaited(cache.prefetch(song.id, uri));
       }
-      final uri = await repository.getAudioStreamUrl(
-        song.id,
-        quality: repository.quality,
-      );
-      if (requestId != _playRequestId) return;
-      if (uri != null) unawaited(cache.prefetch(song.id, uri));
+    } catch (_) {
+      // La precarga es opcional: un fallo no debe afectar la reproducción.
     }
   }
 
   Future<void> _onCompleted() async {
     if (_isResolvingStream) return;
-    await _flushListening();
-    _persistSession();
+    unawaited(_flushListening());
+    unawaited(_persistSession(force: true));
     if (_repeatMode == AudioServiceRepeatMode.one) {
       await _active.seek(Duration.zero);
       await _startPlayback(recordPlay: true);
@@ -599,7 +681,7 @@ class MusicAudioHandler extends BaseAudioHandler
       }
     }
     _playIntent = false;
-    _playingController.add(false);
+    _emitPlaying(false);
     _broadcastState();
   }
 
@@ -675,6 +757,7 @@ class MusicAudioHandler extends BaseAudioHandler
   Future<void> _maybePrepareCrossfade() async {
     if (!_crossfadeEnabled ||
         _crossfading ||
+        _preparingCrossfade ||
         _isResolvingStream ||
         _needsLoad ||
         !_active.playing ||
@@ -694,6 +777,7 @@ class MusicAudioHandler extends BaseAudioHandler
     }
 
     final song = _queueSongs[nextIndex];
+    _preparingCrossfade = true;
     try {
       await _standby.stop();
       await _standby.setVolume(0);
@@ -706,16 +790,19 @@ class MusicAudioHandler extends BaseAudioHandler
       await _standby.setAudioSource(source);
       if (_currentIndex + 1 != nextIndex || !_active.playing) return;
       _preparedNextIndex = nextIndex;
-      _durationController.add(_standby.duration);
+      _emitDuration(_standby.duration);
     } catch (_) {
       // Si no se puede preparar, la transición normal al terminar seguirá.
       _preparedNextIndex = null;
+    } finally {
+      _preparingCrossfade = false;
     }
   }
 
   Future<void> _maybeStartCrossfade() async {
     if (!_crossfadeEnabled ||
         _crossfading ||
+        _startingCrossfade ||
         _preparedNextIndex != _currentIndex + 1 ||
         _currentIndex < 0) {
       return;
@@ -725,53 +812,60 @@ class MusicAudioHandler extends BaseAudioHandler
     final remaining = duration - _active.position;
     if (remaining > _crossfadeDuration || remaining <= Duration.zero) return;
 
-    final nextIndex = _currentIndex + 1;
-    final nextSong = _queueSongs[nextIndex];
-    final old = _active;
-    await _flushListening();
-    _crossfading = true;
-    _active = _standby;
-    _standby = old;
-    _fadingPlayer = old;
-    _preparedNextIndex = null;
-    _currentIndex = nextIndex;
-    _playIntent = true;
-    _recordedPlay = false;
-    _lastPlayedSeconds = -1;
-    _pendingListeningSeconds = 0;
-    mediaItem.add(_mediaItem(nextSong));
-    _emitQueue();
-
-    unawaited(stats?.recordPlay(nextSong) ?? Future.value());
-    unawaited(_addHistory(nextSong));
-
+    _startingCrossfade = true;
     try {
-      await _session.setActive(true);
-      await old.setVolume(1);
-      await _active.setVolume(0);
-      await _active.play();
-      _playingController.add(true);
-      _positionController.add(_active.position);
-      _durationController.add(_active.duration);
+      final nextIndex = _currentIndex + 1;
+      final nextSong = _queueSongs[nextIndex];
+      final old = _active;
+      unawaited(_flushListening());
+      _crossfading = true;
+      _active = _standby;
+      _standby = old;
+      _fadingPlayer = old;
+      _preparedNextIndex = null;
+      _currentIndex = nextIndex;
+      _playIntent = true;
+      _recordedPlay = false;
+      _lastPlayedSeconds = -1;
+      _pendingListeningSeconds = 0;
+      mediaItem.add(_mediaItem(nextSong));
       _broadcastState();
-      final fadeMs = _crossfadeDuration.inMilliseconds.clamp(800, 12000);
-      const step = 60;
-      var elapsed = 0;
-      _fadeTimer?.cancel();
-      _fadeTimer = Timer.periodic(const Duration(milliseconds: step), (timer) {
-        elapsed += step;
-        final progress = (elapsed / fadeMs).clamp(0.0, 1.0);
-        unawaited(_active.setVolume(progress));
-        unawaited(old.setVolume(1 - progress));
-        if (progress >= 1) {
-          timer.cancel();
-          unawaited(_finishCrossfade());
-        }
-      });
-      _persistSession();
-    } catch (error) {
-      await _finishCrossfade();
-      _publishPlaybackError(error);
+
+      _recordPlay(nextSong);
+      unawaited(_addHistory(nextSong));
+
+      try {
+        await _session.setActive(true);
+        await old.setVolume(1);
+        await _active.setVolume(0);
+        await _active.play();
+        _emitPlaying(true);
+        _positionController.add(_active.position);
+        _emitDuration(_active.duration);
+        _broadcastState();
+        final fadeMs = _crossfadeDuration.inMilliseconds.clamp(800, 12000);
+        const step = 60;
+        var elapsed = 0;
+        _fadeTimer?.cancel();
+        _fadeTimer = Timer.periodic(const Duration(milliseconds: step), (
+          timer,
+        ) {
+          elapsed += step;
+          final progress = (elapsed / fadeMs).clamp(0.0, 1.0);
+          unawaited(_active.setVolume(progress).catchError((_) {}));
+          unawaited(old.setVolume(1 - progress).catchError((_) {}));
+          if (progress >= 1) {
+            timer.cancel();
+            unawaited(_finishCrossfade());
+          }
+        });
+        unawaited(_persistSession());
+      } catch (error) {
+        await _finishCrossfade();
+        _publishPlaybackError(error);
+      }
+    } finally {
+      _startingCrossfade = false;
     }
   }
 
@@ -790,7 +884,7 @@ class MusicAudioHandler extends BaseAudioHandler
       await _active.setVolume(1);
     } catch (_) {}
     _crossfading = false;
-    _playingController.add(_active.playing);
+    _emitPlaying(_active.playing);
     _broadcastState();
     unawaited(_prefetchUpcoming());
   }
@@ -802,12 +896,10 @@ class MusicAudioHandler extends BaseAudioHandler
     _fadingPlayer = null;
     _crossfading = false;
     if (stopFading && fading != null) {
-      unawaited(fading.stop());
-      unawaited(fading.setVolume(1));
+      unawaited(fading.stop().catchError((_) {}));
+      unawaited(fading.setVolume(1).catchError((_) {}));
     }
-    try {
-      unawaited(_active.setVolume(1));
-    } catch (_) {}
+    unawaited(_active.setVolume(1).catchError((_) {}));
     _preparedNextIndex = null;
   }
 
@@ -851,7 +943,18 @@ class MusicAudioHandler extends BaseAudioHandler
     if (seconds <= 0) return;
     _pendingListeningSeconds = 0;
     final song = currentSong;
-    if (song != null) await stats?.addListening(song, seconds);
+    if (song == null) return;
+    try {
+      await stats?.addListening(song, seconds);
+    } catch (_) {
+      // Las estadísticas nunca deben interrumpir la reproducción.
+    }
+  }
+
+  void _recordPlay(SongModel song) {
+    final service = stats;
+    if (service == null) return;
+    unawaited(service.recordPlay(song).catchError((_) {}));
   }
 
   // ---------------------------------------------------------------------------
@@ -864,7 +967,7 @@ class MusicAudioHandler extends BaseAudioHandler
     required bool shuffle,
   }) async {
     if (songs.isEmpty) return;
-    await _flushListening();
+    unawaited(_flushListening());
     final safeIndex = startIndex.clamp(0, songs.length - 1);
     final selected = songs[safeIndex];
     final list = List<SongModel>.of(songs);
@@ -935,7 +1038,7 @@ class MusicAudioHandler extends BaseAudioHandler
         await stop();
         _queueSongs.clear();
         _currentIndex = -1;
-        await _settings.delete('playbackSession');
+        await _clearPersistedSession();
         _emitQueue();
         mediaItem.add(null);
         return;
@@ -999,7 +1102,7 @@ class MusicAudioHandler extends BaseAudioHandler
     _preparedNextIndex = null;
     _emitQueue();
     mediaItem.add(null);
-    await _settings.delete('playbackSession');
+    await _clearPersistedSession();
   }
 
   Future<void> retryCurrent() async {
@@ -1012,6 +1115,7 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   void _emitQueue() {
+    _sessionQueueDirty = true;
     queue.add(_queueSongs.map(_mediaItem).toList());
     _broadcastState();
   }
@@ -1020,24 +1124,98 @@ class MusicAudioHandler extends BaseAudioHandler
   // Sesión persistente
   // ---------------------------------------------------------------------------
 
-  Future<void> _persistSession() async {
+  Future<void> _persistSession({bool force = false}) {
+    final next = _sessionWrite.then((_) => _persistSessionNow(force: force));
+    _sessionWrite = next.catchError((_) {});
+    return next;
+  }
+
+  Future<void> _persistSessionNow({bool force = false}) async {
     if (_queueSongs.isEmpty || _currentIndex < 0) return;
     final position = _needsLoad ? _resumePosition : _active.position;
+    final positionMs = position.inMilliseconds;
+    final index = _currentIndex;
+    if (!force &&
+        _lastPersistedIndex == index &&
+        _lastPersistedPositionMs == positionMs) {
+      return;
+    }
+    final writeId = _sessionWriteId;
     try {
-      await _settings.put('playbackSession', {
-        'queue': _queueSongs.map((song) => song.toJson()).toList(),
-        'index': _currentIndex,
-        'positionMs': position.inMilliseconds,
+      // La cola solo se serializa cuando cambia. Los guardados periódicos
+      // escriben únicamente índice/posición, mucho más barato que reescribir
+      // toda la cola cada 10 segundos.
+      if (_sessionQueueDirty || _sessionQueueJson == null) {
+        final queueJson = _queueSongs
+            .map((song) => song.toJson())
+            .toList(growable: false);
+        _sessionQueueJson = queueJson;
+        _sessionQueueDirty = false;
+        if (writeId != _sessionWriteId) return;
+        await _settings.put('playbackSessionQueue', {'queue': queueJson});
+      }
+      if (writeId != _sessionWriteId) return;
+      await _settings.put('playbackSessionState', {
+        'index': index,
+        'positionMs': positionMs,
         'savedAt': DateTime.now().toIso8601String(),
       });
+      _lastPersistedIndex = index;
+      _lastPersistedPositionMs = positionMs;
+      if (_settings.containsKey('playbackSession')) {
+        await _settings.delete('playbackSession');
+      }
+    } catch (_) {
+      // Si falló la escritura, el siguiente guardado debe reintentar la cola.
+      _sessionQueueDirty = true;
+      _lastPersistedIndex = null;
+      _lastPersistedPositionMs = null;
+    }
+  }
+
+  Future<void> _clearPersistedSession() {
+    final next = _sessionWrite.then((_) => _clearPersistedSessionNow());
+    _sessionWrite = next.catchError((_) {});
+    return next;
+  }
+
+  Future<void> _clearPersistedSessionNow() async {
+    _sessionWriteId++;
+    _sessionQueueJson = null;
+    _sessionQueueDirty = true;
+    _lastPersistedIndex = null;
+    _lastPersistedPositionMs = null;
+    try {
+      await _settings.delete('playbackSessionQueue');
+      await _settings.delete('playbackSessionState');
+      await _settings.delete('playbackSession');
     } catch (_) {}
   }
 
   Future<void> restoreSession() async {
-    final raw = _settings.get('playbackSession');
-    if (raw is! Map || _queueSongs.isNotEmpty) return;
-    final list = raw['queue'];
-    if (list is! List) return;
+    if (_queueSongs.isNotEmpty) return;
+
+    List? list;
+    var index = 0;
+    var positionMs = 0;
+    var legacy = false;
+    final queueRaw = _settings.get('playbackSessionQueue');
+    final stateRaw = _settings.get('playbackSessionState');
+    if (queueRaw is Map && queueRaw['queue'] is List) {
+      list = queueRaw['queue'] as List;
+      if (stateRaw is Map) {
+        index = (stateRaw['index'] as num?)?.toInt() ?? 0;
+        positionMs = (stateRaw['positionMs'] as num?)?.toInt() ?? 0;
+      }
+    } else {
+      final raw = _settings.get('playbackSession');
+      if (raw is! Map || raw['queue'] is! List) return;
+      list = raw['queue'] as List;
+      index = (raw['index'] as num?)?.toInt() ?? 0;
+      positionMs = (raw['positionMs'] as num?)?.toInt() ?? 0;
+      legacy = true;
+    }
+
     final songs = list
         .whereType<Map>()
         .map((entry) {
@@ -1050,11 +1228,7 @@ class MusicAudioHandler extends BaseAudioHandler
         .whereType<SongModel>()
         .toList();
     if (songs.isEmpty) return;
-    final index = ((raw['index'] as num?)?.toInt() ?? 0).clamp(
-      0,
-      songs.length - 1,
-    );
-    final positionMs = (raw['positionMs'] as num?)?.toInt() ?? 0;
+    index = index.clamp(0, songs.length - 1);
     _queueSongs
       ..clear()
       ..addAll(songs);
@@ -1062,10 +1236,19 @@ class MusicAudioHandler extends BaseAudioHandler
     _resumePosition = Duration(milliseconds: positionMs);
     _needsLoad = true;
     _restoredSession = true;
+    _playIntent = false;
+    _errorMessage = null;
+    _sessionQueueJson = songs
+        .map((song) => song.toJson())
+        .toList(growable: false);
+    _sessionQueueDirty = legacy;
+    _lastPersistedIndex = index;
+    _lastPersistedPositionMs = positionMs;
+    _lastStateSignature = '';
     mediaItem.add(_mediaItem(songs[index]));
     queue.add(songs.map(_mediaItem).toList());
     _positionController.add(_resumePosition);
-    _durationController.add(songs[index].duration);
+    _emitDuration(songs[index].duration);
     playbackState.add(
       playbackState.value.copyWith(
         processingState: AudioProcessingState.ready,
@@ -1095,15 +1278,17 @@ class MusicAudioHandler extends BaseAudioHandler
     _playIntent = false;
     _cancelCrossfade(stopFading: true);
     await _active.pause();
-    if (!fromInterruption) {
-      try {
-        await _session.setActive(false);
-      } catch (_) {}
-    }
-    _playingController.add(false);
-    await _flushListening();
-    await _persistSession();
+    _emitPlaying(false);
     _broadcastState();
+    if (!fromInterruption) {
+      unawaited(() async {
+        try {
+          await _session.setActive(false);
+        } catch (_) {}
+      }());
+    }
+    unawaited(_flushListening());
+    unawaited(_persistSession(force: true));
   }
 
   @override
@@ -1115,11 +1300,15 @@ class MusicAudioHandler extends BaseAudioHandler
     _needsLoad = true;
     _cancelCrossfade(stopFading: true);
     await _active.stop();
-    await _session.setActive(false);
-    _playingController.add(false);
-    await _flushListening();
-    await _persistSession();
+    _emitPlaying(false);
     _broadcastState();
+    unawaited(() async {
+      try {
+        await _session.setActive(false);
+      } catch (_) {}
+    }());
+    unawaited(_flushListening());
+    await _persistSession(force: true);
     await super.stop();
   }
 
@@ -1129,18 +1318,19 @@ class MusicAudioHandler extends BaseAudioHandler
     if (_needsLoad) {
       _resumePosition = position;
       _positionController.add(position);
-      _broadcastState();
+      _broadcastState(force: true);
       return;
     }
     await _active.seek(position);
     _positionController.add(position);
+    _broadcastState(force: true);
   }
 
   @override
   Future<void> skipToNext() async {
     if (_queueSongs.isEmpty || _currentIndex < 0) return;
     _cancelCrossfade(stopFading: true);
-    await _flushListening();
+    unawaited(_flushListening());
     if (_currentIndex < _queueSongs.length - 1) {
       _currentIndex++;
       await _loadCurrent(autoPlay: _shouldKeepPlaying);
@@ -1164,7 +1354,7 @@ class MusicAudioHandler extends BaseAudioHandler
       return;
     }
     _cancelCrossfade(stopFading: true);
-    await _flushListening();
+    unawaited(_flushListening());
     if (_currentIndex > 0) {
       _currentIndex--;
     } else if (_repeatMode == AudioServiceRepeatMode.all) {
@@ -1180,7 +1370,7 @@ class MusicAudioHandler extends BaseAudioHandler
   Future<void> skipToQueueItem(int index) async {
     if (index < 0 || index >= _queueSongs.length) return;
     _cancelCrossfade(stopFading: true);
-    await _flushListening();
+    unawaited(_flushListening());
     _currentIndex = index;
     await _loadCurrent(autoPlay: true);
   }
@@ -1237,8 +1427,8 @@ class MusicAudioHandler extends BaseAudioHandler
 
   @override
   Future<void> onTaskRemoved() async {
-    await _flushListening();
-    await _persistSession();
+    unawaited(_flushListening());
+    await _persistSession(force: true);
     await super.onTaskRemoved();
   }
 
@@ -1254,8 +1444,9 @@ class MusicAudioHandler extends BaseAudioHandler
     await _interruptionSubscription?.cancel();
     await _noisySubscription?.cancel();
     await _devicesSubscription?.cancel();
-    await _flushListening();
-    await _persistSession();
+    await _connectivitySubscription?.cancel();
+    unawaited(_flushListening());
+    await _persistSession(force: true);
     for (final player in _players) {
       await player.dispose();
     }

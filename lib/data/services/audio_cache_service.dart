@@ -20,6 +20,11 @@ class AudioCacheService {
 
   final Directory _directory;
 
+  /// Un solo cliente reutiliza conexiones entre precargas consecutivas.
+  final HttpClient _client = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 12)
+    ..idleTimeout = const Duration(seconds: 20);
+
   static const int defaultMaxBytes = 250 * 1024 * 1024;
   static const int defaultMaxFiles = 60;
   static const int unlimitedBytes = 1024 * 1024 * 1024 * 1024;
@@ -28,6 +33,9 @@ class AudioCacheService {
 
   int _maxBytes;
   int _maxFiles;
+  int _knownBytes = 0;
+  int _knownFiles = 0;
+  bool _statsKnown = false;
 
   int get maxBytes => _maxBytes;
   int get maxFiles => _maxFiles;
@@ -89,13 +97,9 @@ class AudioCacheService {
 
     final target = _fileFor(id);
     final temp = File('${target.path}.part');
-    HttpClient? client;
     IOSink? sink;
     try {
-      client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 12)
-        ..idleTimeout = const Duration(seconds: 20);
-      final request = await client.getUrl(uri);
+      final request = await _client.getUrl(uri);
       request.headers.set(
         HttpHeaders.userAgentHeader,
         'com.google.android.exoplayer:exoplayer:2.19.1',
@@ -130,9 +134,24 @@ class AudioCacheService {
         await _delete(temp);
         return;
       }
-      if (target.existsSync()) await target.delete();
+      if (target.existsSync()) {
+        try {
+          if (_statsKnown) _knownBytes -= target.lengthSync();
+        } catch (_) {}
+        await target.delete();
+      }
       await temp.rename(target.path);
-      await _evict();
+
+      if (!_statsKnown) {
+        await _evict();
+      } else {
+        _knownFiles++;
+        _knownBytes += written;
+        // Solo recorremos el directorio cuando de verdad hace falta expulsar.
+        if (_knownFiles > _maxFiles || _knownBytes > _maxBytes) {
+          await _evict();
+        }
+      }
     } catch (error) {
       debugPrint('Caché de audio omitida para $id: $error');
       if (sink != null) {
@@ -142,22 +161,37 @@ class AudioCacheService {
       }
       await _delete(temp);
     } finally {
-      client?.close(force: true);
       _inFlight.remove(id);
     }
   }
 
-  Future<int> sizeBytes() async {
-    var total = 0;
+  /// Tamaño y número de archivos en una sola pasada.
+  Future<({int bytes, int files})> stats() async {
+    if (_statsKnown) return (bytes: _knownBytes, files: _knownFiles);
+    var bytes = 0;
+    var files = 0;
+    var ok = true;
     try {
       await for (final entity in _directory.list()) {
         if (entity is File && !entity.path.endsWith('.part')) {
-          total += await entity.length();
+          bytes += await entity.length();
+          files++;
         }
       }
-    } catch (_) {}
-    return total;
+    } catch (_) {
+      ok = false;
+    }
+    if (ok) {
+      _knownBytes = bytes;
+      _knownFiles = files;
+      _statsKnown = true;
+    }
+    return (bytes: bytes, files: files);
   }
+
+  Future<int> sizeBytes() async => (await stats()).bytes;
+
+  Future<int> fileCount() async => (await stats()).files;
 
   Future<void> clear() async {
     try {
@@ -167,6 +201,9 @@ class AudioCacheService {
     } catch (error) {
       debugPrint('No se pudo limpiar la caché de audio: $error');
     }
+    _knownBytes = 0;
+    _knownFiles = 0;
+    _statsKnown = true;
   }
 
   Future<void> _delete(File file) async {
@@ -189,29 +226,30 @@ class AudioCacheService {
         } catch (_) {}
       }
     } catch (_) {
+      _statsKnown = false;
       return;
     }
     // Conserva primero las canciones usadas más recientemente.
     stats.sort((a, b) => b.modified.compareTo(a.modified));
     var total = 0;
+    var keptBytes = 0;
+    var keptFiles = 0;
     for (var i = 0; i < stats.length; i++) {
       total += stats[i].size;
       if (i >= _maxFiles || total > _maxBytes) {
         await _delete(stats[i].file);
+      } else {
+        keptBytes += stats[i].size;
+        keptFiles++;
       }
     }
-  }
-
-  Future<int> fileCount() async {
-    var total = 0;
-    try {
-      await for (final entity in _directory.list()) {
-        if (entity is File && !entity.path.endsWith('.part')) total++;
-      }
-    } catch (_) {}
-    return total;
+    _knownBytes = keptBytes;
+    _knownFiles = keptFiles;
+    _statsKnown = true;
   }
 
   /// Aplica inmediatamente el límite actual (por ejemplo al reducirlo).
   Future<void> enforceLimit() => _evict();
+
+  void dispose() => _client.close(force: true);
 }

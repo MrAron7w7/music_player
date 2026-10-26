@@ -80,6 +80,7 @@ Future<void> main() async {
         final uri = await musicRepository.getAudioStreamUrl(
           id,
           quality: fallback,
+          requireWatchPage: true,
         );
         if (uri != null) return uri;
       }
@@ -132,7 +133,9 @@ Future<void> main() async {
       androidStopForegroundOnPause: true,
       androidNotificationClickStartsActivity: true,
       androidShowNotificationBadge: false,
-      preloadArtwork: true,
+      // La notificación carga la portada de la canción actual bajo demanda.
+      // Precargar toda la cola descargaba decenas de imágenes al iniciar.
+      preloadArtwork: false,
       artDownscaleWidth: 512,
       artDownscaleHeight: 512,
     ),

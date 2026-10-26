@@ -5,10 +5,33 @@ class AppTheme {
   static const blue = Color(0xFF2563EB);
   static final themeMode = ValueNotifier<ThemeMode>(ThemeMode.system);
 
-  static ThemeData light([Color? albumColor]) =>
-      _build(Brightness.light, albumColor);
-  static ThemeData dark([Color? albumColor]) =>
-      _build(Brightness.dark, albumColor);
+  static int? _lightKey;
+  static int? _darkKey;
+  static ThemeData? _lightTheme;
+  static ThemeData? _darkTheme;
+
+  static final Map<Brightness, TextTheme> _baseTextThemes = {
+    Brightness.light: GoogleFonts.interTextTheme(ThemeData.light().textTheme),
+    Brightness.dark: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
+  };
+
+  static ThemeData light([Color? albumColor]) {
+    final key = albumColor?.toARGB32() ?? -1;
+    if (_lightTheme != null && _lightKey == key) return _lightTheme!;
+    final theme = _build(Brightness.light, albumColor);
+    _lightKey = key;
+    _lightTheme = theme;
+    return theme;
+  }
+
+  static ThemeData dark([Color? albumColor]) {
+    final key = albumColor?.toARGB32() ?? -1;
+    if (_darkTheme != null && _darkKey == key) return _darkTheme!;
+    final theme = _build(Brightness.dark, albumColor);
+    _darkKey = key;
+    _darkTheme = theme;
+    return theme;
+  }
 
   static ThemeData _build(Brightness brightness, Color? albumColor) {
     final dark = brightness == Brightness.dark;
@@ -23,9 +46,7 @@ class AppTheme {
     final surfaceHigh = dark
         ? const Color(0xFF202A36)
         : const Color(0xFFEDF1F7);
-    final textTheme = GoogleFonts.interTextTheme(
-      (dark ? ThemeData.dark() : ThemeData.light()).textTheme,
-    );
+    final textTheme = _baseTextThemes[brightness]!;
 
     return ThemeData(
       useMaterial3: true,
@@ -136,7 +157,7 @@ class AppTheme {
       iconButtonTheme: IconButtonThemeData(
         style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
       ),
-      splashFactory: InkSparkle.splashFactory,
+      splashFactory: InkRipple.splashFactory,
       visualDensity: VisualDensity.standard,
     );
   }

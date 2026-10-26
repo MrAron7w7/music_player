@@ -47,7 +47,10 @@ class ArtistSpotlight {
 final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>((
   ref,
 ) async {
-  final history = ref.watch(historyProvider);
+  // El historial se lee como instantánea: cambia con cada reproducción y no
+  // queremos lanzar recomendaciones nuevas cada vez que empieza una canción.
+  // Al volver a Inicio el proveedor se recrea y toma el historial más reciente.
+  final history = ref.read(historyProvider);
   final favorites = ref.watch(favoritesProvider);
 
   StatsSnapshot? stats;
@@ -87,8 +90,10 @@ final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>(
   if (seeds.isEmpty) return const [];
 
   final day = DateTime.now().day;
-  final cacheKey =
-      'home:recommendations:v3:${seeds.map((song) => song.id).join('|')}:$day';
+  // Una sola tanda de recomendaciones por día. Antes la clave incluía las
+  // semillas y el historial, así que cada canción reproducida provocaba otra
+  // llamada de red aun estando en Inicio.
+  final cacheKey = 'home:recommendations:v4:$day';
   final stored = cache.get<List>(cacheKey);
   if (stored != null) {
     final cached = stored
@@ -197,7 +202,9 @@ final artistSpotlightProvider = FutureProvider.autoDispose<ArtistSpotlight?>((
   final artistName = current.artists.isNotEmpty
       ? current.artists.first
       : 'tu artista';
-  final history = ref.watch(historyProvider);
+  // Igual que en recomendaciones, el historial es una instantánea: el cambio
+  // de canción ya recrea este proveedor y evita recomputaciones duplicadas.
+  final history = ref.read(historyProvider);
   final yt = ref.watch(ytServiceProvider);
 
   var artistId = current.artistIds?.firstOrNull;

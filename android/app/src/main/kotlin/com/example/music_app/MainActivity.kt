@@ -74,19 +74,21 @@ class MainActivity : AudioServiceActivity() {
         editor.putBoolean("playing", arguments["playing"] as? Boolean ?: false)
 
         val artwork = arguments["artwork"] as? ByteArray
-        if (artwork != null && artwork.isNotEmpty()) {
-            try {
-                val file = File(filesDir, "widget_artwork.img")
-                FileOutputStream(file).use { it.write(artwork) }
-                editor.putString("artwork_path", file.absolutePath)
-            } catch (_: Exception) {
+        if (arguments.containsKey("artwork")) {
+            if (artwork != null && artwork.isNotEmpty()) {
+                try {
+                    val file = File(filesDir, "widget_artwork.img")
+                    FileOutputStream(file).use { it.write(artwork) }
+                    editor.putString("artwork_path", file.absolutePath)
+                } catch (_: Exception) {
+                    editor.remove("artwork_path")
+                }
+            } else {
                 editor.remove("artwork_path")
-            }
-        } else {
-            editor.remove("artwork_path")
-            try {
-                File(filesDir, "widget_artwork.img").delete()
-            } catch (_: Exception) {
+                try {
+                    File(filesDir, "widget_artwork.img").delete()
+                } catch (_: Exception) {
+                }
             }
         }
         editor.apply()

@@ -105,9 +105,10 @@ final cacheUsageProvider = FutureProvider.autoDispose<CacheUsage>((ref) async {
       }
     }
   } catch (_) {}
+  final audioStats = await audio.stats();
   return CacheUsage(
-    audioBytes: await audio.sizeBytes(),
-    audioFiles: await audio.fileCount(),
+    audioBytes: audioStats.bytes,
+    audioFiles: audioStats.files,
     metadataBytes: appCache.estimatedBytes(),
     metadataEntries: appCache.entryCount,
     coverDiskBytes: coverDisk,

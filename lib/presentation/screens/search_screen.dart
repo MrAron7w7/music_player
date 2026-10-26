@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../providers/music_providers.dart';
 import '../../providers/library_providers.dart';
+import '../../providers/navigation_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../widgets/album_art.dart';
 import '../widgets/empty_state.dart';
@@ -44,7 +45,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       }
       return;
     }
-    debounce = Timer(const Duration(milliseconds: 320), () {
+    debounce = Timer(const Duration(milliseconds: 250), () {
       final normalized = query.trim();
       if (normalized == ref.read(searchQueryProvider)) return;
       ref.read(searchQueryProvider.notifier).state = normalized;
@@ -86,6 +87,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // La pantalla vive dentro de un IndexedStack. Si no está visible no
+    // necesitamos construir su árbol ni mantener vivos los proveedores de
+    // búsqueda; al volver, el controlador conserva el texto y la caché hace
+    // que el resultado reaparezca casi al instante.
+    if (ref.watch(selectedTabProvider) != 1) return const SizedBox.shrink();
     final offline = ref.watch(offlineModeProvider);
     final query = ref.watch(searchQueryProvider).trim();
     // Only request the active tab. The service caches each query, so returning

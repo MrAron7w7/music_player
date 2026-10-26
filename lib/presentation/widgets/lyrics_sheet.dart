@@ -72,7 +72,8 @@ class _LyricsSheetState extends ConsumerState<LyricsSheet> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final accent =
-        ref.watch(albumArtColorProvider).valueOrNull ?? colors.primary;
+        ref.watch(albumArtColorProvider.select((state) => state.valueOrNull)) ??
+        colors.primary;
     final lyrics = ref.watch(songLyricsProvider(widget.songId));
 
     // Solo se reconstruye cuando cambia la línea activa, no en cada tick de

@@ -5,15 +5,85 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/utils/extensions.dart';
 import '../../core/utils/helpers.dart';
 import '../../core/utils/notification_permissions.dart';
 import '../../data/models/song_model.dart';
 import '../../providers/downloads_providers.dart';
+import '../../providers/library_providers.dart';
 import '../../providers/player_providers.dart';
 import '../widgets/album_art.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/song_tile.dart';
+import '../../providers/settings_providers.dart';
+
+/// Ordena una copia de las canciones según el criterio elegido por el
+/// usuario, sin modificar el orden de inserción original.
+List<SongModel> _sortDownloadsSongs(List<SongModel> sortedSongs, String order) {
+  final result = List<SongModel>.from(sortedSongs);
+  switch (order) {
+    case 'title':
+      result.sort(
+        (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+      );
+    case 'artist':
+      result.sort((a, b) {
+        final aa = a.artists.isNotEmpty ? a.artists.first.toLowerCase() : '';
+        final bb = b.artists.isNotEmpty ? b.artists.first.toLowerCase() : '';
+        return aa.compareTo(bb);
+      });
+    case 'duration':
+      result.sort((a, b) =>
+          (a.duration ?? Duration.zero).compareTo(b.duration ?? Duration.zero));
+    case 'default':
+    default:
+      break;
+  }
+  return result;
+}
+
+String _sortDownloadsLabel(String order) => switch (order) {
+      'default' => 'Por defecto (recientes)',
+      'title' => 'Título A-Z',
+      'artist' => 'Artista',
+      'duration' => 'Duración',
+      _ => 'Por defecto (recientes)',
+    };
+
+void _showSortDownloadsSheet(BuildContext context, WidgetRef ref) {
+  final current = ref.read(sortOrderProvider('downloads'));
+  showModalBottomSheet<String>(
+    context: context,
+    useSafeArea: true,
+    builder: (sheetContext) => Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const ListTile(title: Text('Ordenar canciones')),
+        ...const <String>['default', 'title', 'artist', 'duration'].map(
+          (value) => ListTile(
+            leading: Icon(
+              Icons.check_rounded,
+              color: value == current
+                  ? Theme.of(sheetContext).colorScheme.primary
+                  : null,
+              size: 20,
+            ),
+            title: Text(_sortDownloadsLabel(value)),
+            onTap: () => Navigator.pop(sheetContext, value),
+          ),
+        ),
+      ],
+    ),
+  ).then((selected) {
+    if (selected == null) return;
+    ref.read(localRepositoryProvider).settings.put(
+          AppConstants.sortDownloadsKey,
+          selected,
+        );
+    ref.read(sortOrderProvider('downloads').notifier).state = selected;
+  });
+}
 
 class DownloadsScreen extends ConsumerWidget {
   const DownloadsScreen({super.key});
@@ -21,14 +91,14 @@ class DownloadsScreen extends ConsumerWidget {
   Future<void> _playAll(
     BuildContext context,
     WidgetRef ref,
-    List<SongModel> songs, {
+    List<SongModel> sortedSongs, {
     required bool shuffle,
   }) async {
-    if (songs.isEmpty) return;
-    final index = shuffle ? math.Random().nextInt(songs.length) : 0;
+    if (sortedSongs.isEmpty) return;
+    final index = shuffle ? math.Random().nextInt(sortedSongs.length) : 0;
     final playback = ref
         .read(audioHandlerProvider)
-        .playSongs(songs, startIndex: index, shuffle: shuffle);
+        .playSongs(sortedSongs, startIndex: index, shuffle: shuffle);
     if (context.mounted) context.push('/now-playing');
     unawaited(requestPlaybackNotificationPermission(context: context));
     await playback;
@@ -63,14 +133,16 @@ class DownloadsScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final downloads = ref.watch(downloadsProvider).valueOrNull ?? const [];
-    final songs = downloads.map((entry) => entry.song).toList();
+    final rawSongs = downloads.map((entry) => entry.song).toList();
+    final sortOrder = ref.watch(sortOrderProvider('downloads'));
+    final sortedSongs = _sortDownloadsSongs(rawSongs, sortOrder);
     final currentSong = ref.watch(currentSongProvider).valueOrNull;
     final heroEntry =
         downloads
             .where((entry) => entry.song.id == currentSong?.id)
             .firstOrNull ??
         downloads.firstOrNull;
-    final totalDuration = songs.fold<Duration>(
+    final totalDuration = sortedSongs.fold<Duration>(
       Duration.zero,
       (total, song) => total + (song.duration ?? Duration.zero),
     );
@@ -97,6 +169,11 @@ class DownloadsScreen extends ConsumerWidget {
                 child: Text('Borrar todas las descargas'),
               ),
             ],
+          ),
+          IconButton(
+            tooltip: 'Ordenar',
+            onPressed: () => _showSortDownloadsSheet(context, ref),
+            icon: const Icon(Icons.sort_rounded),
           ),
           const SizedBox(width: 4),
         ],
@@ -176,9 +253,9 @@ class DownloadsScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          songs.length == 1
+                          sortedSongs.length == 1
                               ? '1 canción · ${totalDuration.hoursMinutes}'
-                              : '${songs.length} canciones · ${totalDuration.hoursMinutes}',
+                              : '${sortedSongs.length} canciones · ${totalDuration.hoursMinutes}',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: colors.onSurfaceVariant,
                             fontWeight: FontWeight.w600,
@@ -201,7 +278,7 @@ class DownloadsScreen extends ConsumerWidget {
                                 onPressed: () => _playAll(
                                   context,
                                   ref,
-                                  songs,
+                                  sortedSongs,
                                   shuffle: false,
                                 ),
                                 icon: const Icon(Icons.play_arrow_rounded),
@@ -214,7 +291,7 @@ class DownloadsScreen extends ConsumerWidget {
                                 onPressed: () => _playAll(
                                   context,
                                   ref,
-                                  songs,
+                                  sortedSongs,
                                   shuffle: true,
                                 ),
                                 icon: const Icon(Icons.shuffle_rounded),
@@ -241,7 +318,7 @@ class DownloadsScreen extends ConsumerWidget {
                         ),
                         const Spacer(),
                         Text(
-                          '${songs.length}',
+                          '${sortedSongs.length}',
                           style: theme.textTheme.labelMedium?.copyWith(
                             color: colors.onSurfaceVariant,
                             fontWeight: FontWeight.w600,
@@ -252,10 +329,10 @@ class DownloadsScreen extends ConsumerWidget {
                   ),
                 ),
                 SliverList.builder(
-                  itemCount: songs.length,
+                  itemCount: sortedSongs.length,
                   itemBuilder: (context, index) {
-                    final song = songs[index];
-                    return SongTile(song, playQueue: songs, startIndex: index);
+                    final song = sortedSongs[index];
+                    return SongTile(song, playQueue: sortedSongs, startIndex: index);
                   },
                 ),
                 const SliverToBoxAdapter(child: SizedBox(height: 30)),

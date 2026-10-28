@@ -16,4 +16,7 @@ class AppConstants {
   static const headsetAutoplayKey = 'headsetAutoplay';
   static const cacheLimitKey = 'audioCacheLimitBytes';
   static const playbackSpeedKey = 'playbackSpeed';
+  static const sortFavoritesKey = 'sort_favorites';
+  static const sortHistoryKey = 'sort_history';
+  static const sortDownloadsKey = 'sort_downloads';
 }

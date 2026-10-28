@@ -503,6 +503,73 @@ class YtService {
             .toList(),
       );
 
+  /// Página pública de un artista: nombre, portada, canciones top y álbumes.
+  Future<ArtistPageModel> getArtistPage(String id) => _cached(
+    'artistPageModel:v2:$id',
+    () async {
+      final j = await _artistPage(id);
+      final name = '${j['name'] ?? 'Artista'}';
+      final thumb = SongModel.fromJson(j).thumbnailUrl;
+      final topSongs = await getArtistSongs(id);
+      final albumRaw = j['albums'];
+      final params =
+          albumRaw is Map ? albumRaw['params'] as String? : null;
+      final albumes = <AlbumModel>[];
+      if (params != null && params.isNotEmpty) {
+        try {
+          final rawAlbums = await api.getArtistAlbums(id, params, limit: 24);
+          for (final a in rawAlbums.whereType<Map>()) {
+            try {
+              final map = Map<String, dynamic>.from(a);
+              map['id'] = '${map['browseId'] ?? map['id'] ?? ''}';
+              if (map['id'].isEmpty) continue;
+              map['title'] ??= '${map['title'] ?? 'Álbum'}';
+              final artists = (map['artists'] as List? ?? const [])
+                  .whereType<Map>()
+                  .map((e) => '${e['name'] ?? e}')
+                  .whereType<String>()
+                  .toList();
+              map['artists'] = artists;
+              albumes.add(AlbumModel.fromJson(map));
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }
+      return ArtistPageModel(
+        name: name,
+        thumb: thumb,
+        cancionesTop: topSongs,
+        albumes: albumes,
+      );
+    },
+    ttl: const Duration(minutes: 30),
+    persistTtl: const Duration(hours: 12),
+    persistMaxEntries: 100,
+    encode: (page) => {
+      'name': page.name,
+      'thumb': page.thumb,
+      'cancionesTop': page.cancionesTop.map((s) => s.toJson()).toList(),
+      'albumes': page.albumes.map((a) => a.toJson()).toList(),
+    },
+    decode: (data) {
+      final d = Map<String, dynamic>.from(data as Map);
+      return ArtistPageModel(
+        name: '${d['name'] ?? 'Artista'}',
+        thumb: d['thumb'] as String?,
+        cancionesTop: (d['cancionesTop'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => SongModel.fromJson(Map<String, dynamic>.from(e)))
+            .where((s) => s.id.isNotEmpty)
+            .toList(),
+        albumes: (d['albumes'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => AlbumModel.fromJson(Map<String, dynamic>.from(e)))
+            .where((a) => a.id.isNotEmpty)
+            .toList(),
+      );
+    },
+  );
+
   /// Recomendaciones contextuales de un artista: sus canciones más conocidas
   /// y su radio, intercaladas y sin duplicados.
   Future<List<SongModel>> getArtistRecommendations(

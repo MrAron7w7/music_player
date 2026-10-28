@@ -236,6 +236,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        onTap: artist.id.isNotEmpty
+                            ? () => context.push('/artist/${artist.id}')
+                            : null,
                       ),
                     ),
                   );

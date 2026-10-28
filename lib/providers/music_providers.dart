@@ -65,6 +65,11 @@ final songLyricsProvider = FutureProvider.autoDispose
       (ref, videoId) => ref.watch(ytServiceProvider).getLyricsForSong(videoId),
     );
 
+final artistPageProvider = FutureProvider.autoDispose
+    .family<ArtistPageModel, String>(
+      (ref, id) => ref.watch(ytServiceProvider).getArtistPage(id),
+    );
+
 /// Estado acumulado de búsqueda de canciones con paginación.
 class SearchSongsState {
   const SearchSongsState({

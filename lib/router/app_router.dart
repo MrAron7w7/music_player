@@ -5,6 +5,7 @@ import '../presentation/navigation/main_scaffold.dart';
 import '../presentation/screens/now_playing_screen.dart';
 import '../presentation/screens/playlist_detail_screen.dart';
 import '../presentation/screens/album_detail_screen.dart';
+import '../presentation/screens/artist_screen.dart';
 import '../presentation/screens/downloads_screen.dart';
 import '../presentation/screens/library_collection_screen.dart';
 import '../presentation/screens/playlists_screen.dart';
@@ -59,6 +60,11 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/album/:id',
       builder: (c, s) => AlbumDetailScreen(albumId: s.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/artist/:id',
+      builder: (c, s) =>
+          ArtistScreen(artistId: s.pathParameters['id']!),
     ),
     GoRoute(
       path: '/playlist/:id',

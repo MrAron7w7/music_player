@@ -1,6 +1,6 @@
 {
-  "version": "2.0.1",
-  "build": 3,
-  "download_url": "https://github.com/MrAron7w7/music_player/releases/download/v2.0.1/app-release.apk",
-  "notes": "Mejoras de rendimiento, búsqueda más rápida, carátulas y reproducción optimizada."
+  "version": "2.0.2",
+  "build": 4,
+  "download_url": "https://github.com/MrAron7w7/music_player/releases/download/v2.0.2/app-release.apk",
+  "notes": "Mejoras de rendimiento, Se agrego buscador en descargas, historial, playlist, favoritos, se mejoro albunes velocidad y rendimiento"
 }

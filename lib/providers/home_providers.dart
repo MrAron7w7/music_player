@@ -202,51 +202,52 @@ final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>(
   return recommendations;
 });
 
-/// Sugerencias contextuales para la canción actual: más del artista y
-/// artistas parecidos, evitando lo que acaba de sonar.
-final artistSpotlightProvider = FutureProvider.autoDispose<ArtistSpotlight?>((
+/// Artista de la canción actual: solo su ID y nombre. Cambia de parámetro
+/// cuando cambia el artista, no cuando cambia la canción.
+final currentArtistInfoProvider = Provider.autoDispose<({String id, String name})?>(
+  (ref) {
+    final song = ref.watch(
+      currentSongProvider.select((state) => state.valueOrNull),
+    );
+    if (song == null || song.id.isEmpty) return null;
+    final id = song.artistIds?.firstOrNull;
+    if (id == null || id.isEmpty) return null;
+    final name = song.artists.isNotEmpty ? song.artists.first : 'tu artista';
+    return (id: id, name: name);
+  },
+);
+
+/// Sugerencias contextuales para un artista: más canciones de ese artista y
+/// artistas parecidos, evitando el historial reciente.
+final artistSpotlightProvider = FutureProvider.autoDispose
+    .family<ArtistSpotlight?, String>((
   ref,
+  artistId,
 ) async {
-  final current = ref.watch(currentSongProvider).valueOrNull;
-  if (current == null || current.id.isEmpty) return null;
-  final artistName = current.artists.isNotEmpty
-      ? current.artists.first
-      : 'tu artista';
-  // Igual que en recomendaciones, el historial es una instantánea: el cambio
-  // de canción ya recrea este proveedor y evita recomputaciones duplicadas.
+  if (artistId.isEmpty) return null;
   final history = ref.read(historyProvider);
   final yt = ref.watch(ytServiceProvider);
 
-  var artistId = current.artistIds?.firstOrNull;
-  if (artistId == null || artistId.isEmpty) {
-    // Canciones antiguas guardadas sin IDs: buscamos el artista una vez.
-    try {
-      final artists = await yt.searchArtists(artistName);
-      artistId = artists.firstOrNull?.id;
-    } catch (_) {
-      return null;
-    }
+  final excluded = <String>{};
+  for (final song in history.take(24)) {
+    excluded.add(song.id);
   }
-  if (artistId == null || artistId.isEmpty) return null;
 
-  final excluded = <String>{
-    current.id,
-    for (final song in history.take(24)) song.id,
-  };
   final songs = await yt.getArtistRecommendations(artistId, limit: 14);
   final seen = <String>{...excluded};
   final artistCounts = <String, int>{};
   final result = <SongModel>[];
+  var artistName = 'tu artista';
 
   for (final song in songs) {
     if (result.length >= 12) break;
     if (song.id.isEmpty || !seen.add(song.id)) continue;
     final artistKey = _artistKey(song);
-    final sameArtist =
-        artistKey.isNotEmpty && artistKey == artistName.trim().toLowerCase();
-    final maxForArtist = sameArtist ? 4 : 2;
+    if (artistName == 'tu artista' && song.artists.isNotEmpty) {
+      artistName = song.artists.first;
+    }
     if (artistKey.isNotEmpty &&
-        (artistCounts[artistKey] ?? 0) >= maxForArtist) {
+        (artistCounts[artistKey] ?? 0) >= 2) {
       continue;
     }
     if (artistKey.isNotEmpty) {

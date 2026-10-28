@@ -276,7 +276,9 @@ class _SpotlightSection extends ConsumerWidget {
     final offline = ref.watch(offlineModeProvider);
     final active = ref.watch(selectedTabProvider) == 0;
     if (offline || !active) return const SizedBox.shrink();
-    final spotlightValue = ref.watch(artistSpotlightProvider);
+    final artistInfo = ref.watch(currentArtistInfoProvider);
+    if (artistInfo == null) return const SizedBox.shrink();
+    final spotlightValue = ref.watch(artistSpotlightProvider(artistInfo.id));
     final spotlight = spotlightValue.valueOrNull;
     final spotlightError = spotlightValue.hasError ? spotlightValue.error : null;
 
@@ -287,7 +289,8 @@ class _SpotlightSection extends ConsumerWidget {
           icon: Icons.error_outline_rounded,
           title: 'No se pudo cargar el spotlight del artista',
           message: '$spotlightError',
-          onRetry: () => ref.invalidate(artistSpotlightProvider),
+          onRetry: () =>
+              ref.invalidate(artistSpotlightProvider(artistInfo.id)),
           retryLabel: 'Reintentar',
         ),
       );

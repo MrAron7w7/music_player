@@ -1,6 +1,6 @@
 {
-  "version": "2.0.1",
-  "build": 3,
-  "download_url": "https://github.com/MrAron7w7/music_player/releases/download/v2.0.1/app-release.apk",
-  "notes": "Mejoras de rendimiento, búsqueda más rápida, carátulas y reproducción optimizada."
+  "version": "2.0.6",
+  "build": 6,
+  "download_url": "https://github.com/MrAron7w7/music_player/releases/download/v2.0.6/app-release.apk",
+  "notes": "Actualización de la versión 2.0.6:\n\n- Se ha corregido un error que causaba que la aplicación se cerrara inesperadamente al intentar reproducir ciertas canciones.\n- Se ha mejorado la compatibilidad con dispositivos más antiguos, asegurando un rendimiento más estable.\n- Se han optimizado los tiempos de carga de la biblioteca de música, haciendo que la aplicación sea más rápida y receptiva.\n- Se han realizado mejoras en la interfaz de usuario para una experiencia más intuitiva y agradable.\n- Se han solucionado problemas menores de estabilidad y rendimiento."
 }

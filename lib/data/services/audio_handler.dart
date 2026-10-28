@@ -15,6 +15,7 @@ import 'package:just_audio/just_audio.dart';
 import '../models/song_model.dart';
 import '../repositories/music_repository.dart';
 import '../../core/utils/artwork_url.dart';
+import '../../core/utils/song_unavailable_exception.dart';
 import 'download_service.dart';
 import 'listening_stats_service.dart';
 
@@ -413,6 +414,8 @@ class MusicAudioHandler extends BaseAudioHandler
       _PlaybackFailure(:final message) => message,
       _NoConnection() =>
         'Sin conexión a internet. Revisa tu red e inténtalo de nuevo.',
+      SongUnavailableException(:final SongUnavailableReason reason) =>
+        _unavailableMessage(reason),
       _ => message ?? 'No se pudo reproducir esta canción. Inténtalo de nuevo.',
     };
     _errorMessage = friendly;
@@ -428,6 +431,23 @@ class MusicAudioHandler extends BaseAudioHandler
       ),
     );
     _positionController.add(_resumePosition);
+  }
+
+  String _unavailableMessage(SongUnavailableReason reason) {
+    switch (reason) {
+      case SongUnavailableReason.ageRestricted:
+        return 'Esta canción está restringida por edad.';
+      case SongUnavailableReason.regionRestricted:
+        return 'Esta canción no está disponible en tu región.';
+      case SongUnavailableReason.purchaseRequired:
+        return 'Esta canción requiere compra o alquiler.';
+      case SongUnavailableReason.unavailable:
+        return 'Esta canción ya no está disponible.';
+      case SongUnavailableReason.streamError:
+        return 'No se pudo obtener el audio de esta canción.';
+      case SongUnavailableReason.apiError:
+        return 'No se pudo conectar con YouTube. Inténtalo de nuevo.';
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -480,24 +500,36 @@ class MusicAudioHandler extends BaseAudioHandler
     // ~25 s en total. Si la red está caída, se muestra el error y se permite
     // reintentar en lugar de encadenar esperas por cada calidad.
     final deadline = DateTime.now().add(const Duration(seconds: 26));
+    SongUnavailableException? lastTransitory;
     for (final quality in MusicRepository.fallbackChain(preferred)) {
       final remaining = deadline.difference(DateTime.now());
       if (remaining <= Duration.zero) break;
-      final uri = await repository
-          .getAudioStreamUrl(
-            song.id,
-            quality: quality,
-            forceRefresh: forceRefresh || quality != preferred,
-            requireWatchPage: requireWatchPage || quality != preferred,
-          )
-          .timeout(remaining, onTimeout: () => null);
+      Uri? uri;
+      try {
+        uri = await repository
+            .getAudioStreamUrl(
+              song.id,
+              quality: quality,
+              forceRefresh: forceRefresh || quality != preferred,
+              requireWatchPage: requireWatchPage || quality != preferred,
+            )
+            .timeout(remaining, onTimeout: () => null);
+      } on SongUnavailableException catch (e) {
+        if (e.reason == SongUnavailableReason.apiError ||
+            e.reason == SongUnavailableReason.streamError) {
+          lastTransitory = e;
+          continue;
+        }
+        rethrow;
+      }
       if (uri != null) {
         return AudioSource.uri(uri, tag: _mediaItem(song));
       }
     }
-    throw const _PlaybackFailure(
-      'No se pudo obtener el audio. Puede que el video no esté disponible.',
-    );
+    throw lastTransitory ??
+        const _PlaybackFailure(
+          'No se pudo obtener el audio. Puede que el video no esté disponible.',
+        );
   }
 
   Future<void> _loadCurrent({

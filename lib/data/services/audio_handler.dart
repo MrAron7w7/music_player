@@ -210,6 +210,14 @@ class MusicAudioHandler extends BaseAudioHandler
           _repeatMode == AudioServiceRepeatMode.all ||
           autoPlayRelated);
   bool get hasPrevious => _currentIndex > 0;
+
+  /// Si al pulsar siguiente en el último elemento se usará la cola
+  /// inteligente (autoPlayRelated). Útil para el tooltip del botón.
+  bool get nextUsesSmartQueue =>
+      autoPlayRelated &&
+      _currentIndex >= 0 &&
+      currentSong != null &&
+      _currentIndex >= _queueSongs.length - 1;
   double get currentVolume => _active.volume;
 
   /// Solo la intención explícita del usuario decide si el próximo cambio de

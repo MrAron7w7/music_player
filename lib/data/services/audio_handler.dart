@@ -14,6 +14,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../models/song_model.dart';
 import '../repositories/music_repository.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/utils/artwork_url.dart';
 import '../../core/utils/song_unavailable_exception.dart';
 import 'download_service.dart';
@@ -66,10 +67,36 @@ class MusicAudioHandler extends BaseAudioHandler
     }
     _listenAudioSession();
     _listenConnectivity();
-    _ticker = Timer.periodic(
-      const Duration(milliseconds: 750),
-      (_) => _onTick(),
+    _reloadCrossfadeSettings();
+    // El ticker solo arranca cuando hay reproducción activa (ver _emitPlaying).
+    _settingsSubscription = _settings.watch().listen((event) {
+      if (event.key == AppConstants.crossfadeEnabledKey ||
+          event.key == AppConstants.crossfadeSecondsKey) {
+        _reloadCrossfadeSettings();
+      }
+    });
+  }
+
+  void _reloadCrossfadeSettings() {
+    _crossfadeEnabledCache =
+        _settings.get(AppConstants.crossfadeEnabledKey, defaultValue: false) ==
+            true;
+    final seconds = _settings.get(
+      AppConstants.crossfadeSecondsKey,
+      defaultValue: 3,
     );
+    final value = seconds is int ? seconds : 3;
+    _crossfadeDurationCache = Duration(seconds: value.clamp(1, 12));
+  }
+
+  void _startTicker() {
+    _ticker?.cancel();
+    _ticker = Timer.periodic(const Duration(milliseconds: 750), (_) => _onTick());
+  }
+
+  void _stopTicker() {
+    _ticker?.cancel();
+    _ticker = null;
   }
 
   final MusicRepository repository;
@@ -128,11 +155,16 @@ class MusicAudioHandler extends BaseAudioHandler
   StreamSubscription? _noisySubscription;
   StreamSubscription? _devicesSubscription;
   StreamSubscription? _connectivitySubscription;
+  StreamSubscription? _settingsSubscription;
   bool? _online;
   bool? _lastPlayingEmitted;
   Duration? _lastDurationEmitted;
   String _lastStateSignature = '';
   DateTime _lastStateAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Caché de los valores de crossfade para no leer Hive en cada tick.
+  bool _crossfadeEnabledCache = false;
+  Duration _crossfadeDurationCache = const Duration(seconds: 3);
 
   // La cola serializada se reutiliza entre guardados periódicos; solo se
   // reescribe cuando la cola cambia de verdad.
@@ -198,6 +230,11 @@ class MusicAudioHandler extends BaseAudioHandler
     if (_lastPlayingEmitted == value) return;
     _lastPlayingEmitted = value;
     _playingController.add(value);
+    if (value && _currentIndex >= 0) {
+      _startTicker();
+    } else {
+      _stopTicker();
+    }
   }
 
   void _emitDuration(Duration? value) {
@@ -935,14 +972,9 @@ class MusicAudioHandler extends BaseAudioHandler
     _preparedNextIndex = null;
   }
 
-  bool get _crossfadeEnabled =>
-      _settings.get('crossfadeEnabled', defaultValue: false) == true;
+  bool get _crossfadeEnabled => _crossfadeEnabledCache;
 
-  Duration get _crossfadeDuration {
-    final seconds = _settings.get('crossfadeSeconds', defaultValue: 3);
-    final value = seconds is int ? seconds : 3;
-    return Duration(seconds: value.clamp(1, 12));
-  }
+  Duration get _crossfadeDuration => _crossfadeDurationCache;
 
   // ---------------------------------------------------------------------------
   // Ticker: estadísticas, sesión y crossfade
@@ -1471,8 +1503,9 @@ class MusicAudioHandler extends BaseAudioHandler
   }) => playSongs(queue ?? [song], startIndex: index, shuffle: false);
 
   Future<void> dispose() async {
-    _ticker?.cancel();
+    _stopTicker();
     _fadeTimer?.cancel();
+    await _settingsSubscription?.cancel();
     await _interruptionSubscription?.cancel();
     await _noisySubscription?.cancel();
     await _devicesSubscription?.cancel();

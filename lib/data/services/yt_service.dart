@@ -29,6 +29,10 @@ class YtService {
     Object? Function(T value)? encode,
     T Function(Object? data)? decode,
     Duration timeout = const Duration(seconds: 14),
+    /// Si se proporciona y devuelve `false`, el resultado no se guarda ni en
+    /// caché de memoria ni en disco (útil para evitar cachear listas vacías
+    /// o fallos parciales).
+    bool Function(T value)? cacheIf,
   }) async {
     final entry = _cache[key];
     if (entry != null && DateTime.now().difference(entry.createdAt) < ttl) {
@@ -43,6 +47,9 @@ class YtService {
       if (stored != null) {
         try {
           final value = decode(stored);
+          if (cacheIf != null && !cacheIf(value)) {
+            return value;
+          }
           _cache[key] = (value: value, createdAt: DateTime.now());
           return value;
         } catch (_) {
@@ -58,6 +65,9 @@ class YtService {
     _pending[key] = request;
     try {
       final value = await request;
+      if (cacheIf != null && !cacheIf(value)) {
+        return value;
+      }
       _cache[key] = (value: value, createdAt: DateTime.now());
       while (_cache.length > 100) {
         _cache.remove(_cache.keys.first);
@@ -182,8 +192,10 @@ class YtService {
       }
 
       Map<String, dynamic>? watch;
+      bool watchLoaded = false;
       try {
         watch = await api.getWatchPlaylist(videoId: videoId, limit: 30);
+        watchLoaded = true;
       } catch (_) {
         try {
           watch = await api.getWatchPlaylist(
@@ -191,9 +203,14 @@ class YtService {
             limit: 30,
             radio: true,
           );
+          watchLoaded = true;
         } catch (_) {
           watch = null;
         }
+      }
+
+      if (!watchLoaded) {
+        throw StateError('No se pudo cargar la lista de reproducción relacionada de este video.');
       }
 
       if (watch != null) {
@@ -219,6 +236,7 @@ class YtService {
     persistTtl: const Duration(hours: 6),
     persistMaxEntries: 200,
     timeout: const Duration(seconds: 22),
+    cacheIf: (songs) => songs.isNotEmpty,
     encode: (songs) => songs.map((song) => song.toJson()).toList(),
     decode: (data) => (data as List)
         .whereType<Map>()

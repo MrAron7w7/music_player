@@ -45,7 +45,7 @@ class PlayerControls extends ConsumerWidget {
           icon: Icon(
             Icons.shuffle_rounded,
             size: 22,
-            color: foreground.withValues(alpha: shuffle ? 1 : .48),
+            color: foreground.withValues(alpha: shuffle ? 1 : .7),
           ),
         ),
         IconButton(

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:audio_service/audio_service.dart';
@@ -38,6 +39,9 @@ late final AudioCacheService audioCache;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Edge-to-edge unificado: la barra de navegación del sistema mantiene un
+  // estilo coherente en toda la app (sin saltos entre pantallas).
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   await Hive.initFlutter();
   final boxes = await Future.wait([
     Hive.openBox(AppConstants.favoritesBox),

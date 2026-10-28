@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../providers/music_providers.dart';
 import '../../providers/player_providers.dart';
@@ -98,6 +99,30 @@ class AlbumDetailScreen extends ConsumerWidget {
                                 },
                           icon: const Icon(Icons.play_arrow_rounded),
                           label: const Text('Reproducir'),
+                        ),
+                        const SizedBox(width: 10),
+                        IconButton.filledTonal(
+                          tooltip: 'Reproducir en aleatorio',
+                          onPressed: songs.isEmpty
+                              ? null
+                              : () async {
+                                  await ref
+                                      .read(audioHandlerProvider)
+                                      .playSongs(
+                                        songs,
+                                        startIndex: 0,
+                                        shuffle: true,
+                                      );
+                                  if (context.mounted) {
+                                    context.push('/now-playing');
+                                    unawaited(
+                                      requestPlaybackNotificationPermission(
+                                        context: context,
+                                      ),
+                                    );
+                                  }
+                                },
+                          icon: const Icon(Icons.shuffle_rounded),
                         ),
                         const SizedBox(width: 10),
                         IconButton.filledTonal(

@@ -36,6 +36,7 @@ class _LibraryCollectionScreenState
   final Set<String> _selected = <String>{};
   bool _selecting = false;
   bool _downloading = false;
+  String _searchQuery = '';
 
   String get _title => switch (widget.collection) {
     LibraryCollection.favorites => 'Favoritos',
@@ -271,9 +272,17 @@ class _LibraryCollectionScreenState
     final downloads = ref.watch(downloadsProvider).valueOrNull ?? const [];
     final offline = ref.watch(offlineModeProvider);
     final downloadedIds = downloads.map((entry) => entry.song.id).toSet();
+    final searchQuery = _searchQuery.trim();
+    final filteredSource = searchQuery.isEmpty
+        ? source
+        : source.where((song) {
+            final q = searchQuery.toLowerCase();
+            return song.title.toLowerCase().contains(q) ||
+                song.artists.join(' ').toLowerCase().contains(q);
+          }).toList();
     final visibleSongs = offline
-        ? source.where((song) => downloadedIds.contains(song.id)).toList()
-        : source;
+        ? filteredSource.where((song) => downloadedIds.contains(song.id)).toList()
+        : filteredSource;
     final sortKey = widget.collection == LibraryCollection.favorites
         ? 'favorites'
         : 'history';
@@ -334,7 +343,7 @@ class _LibraryCollectionScreenState
                 ),
                 IconButton(
                   tooltip: 'Seleccionar canciones',
-                  onPressed: sortedSongs.isEmpty
+                  onPressed: searchQuery.isEmpty && sortedSongs.isEmpty
                       ? null
                       : () => setState(() => _selecting = true),
                   icon: const Icon(Icons.checklist_rounded),
@@ -419,6 +428,45 @@ class _LibraryCollectionScreenState
               ),
             )
           else ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
+                child: TextField(
+                  onChanged: (value) => setState(() => _searchQuery = value),
+                  decoration: InputDecoration(
+                    hintText: 'Buscar en ${_title.toLowerCase()}',
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                    suffixIcon: searchQuery.isNotEmpty
+                        ? IconButton(
+                            tooltip: 'Limpiar búsqueda',
+                            icon: const Icon(Icons.close_rounded, size: 20),
+                            onPressed: () => setState(() => _searchQuery = ''),
+                          )
+                        : null,
+                  filled: true,
+                  fillColor: colors.surfaceContainerHighest,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: colors.primary,
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+            ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 2, 20, 6),

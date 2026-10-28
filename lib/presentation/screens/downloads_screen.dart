@@ -51,6 +51,9 @@ String _sortDownloadsLabel(String order) => switch (order) {
       _ => 'Por defecto (recientes)',
     };
 
+/// Consulta de búsqueda para filtrar las descargas por título o artista.
+final downloadsSearchQueryProvider = StateProvider<String>((ref) => '');
+
 void _showSortDownloadsSheet(BuildContext context, WidgetRef ref) {
   final current = ref.read(sortOrderProvider('downloads'));
   showModalBottomSheet<String>(
@@ -133,7 +136,15 @@ class DownloadsScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final downloads = ref.watch(downloadsProvider).valueOrNull ?? const [];
-    final rawSongs = downloads.map((entry) => entry.song).toList();
+    final allSongs = downloads.map((entry) => entry.song).toList();
+    final searchQuery = ref.watch(downloadsSearchQueryProvider).trim();
+    final rawSongs = searchQuery.isEmpty
+        ? allSongs
+        : allSongs.where((song) {
+            final q = searchQuery.toLowerCase();
+            return song.title.toLowerCase().contains(q) ||
+                song.artists.join(' ').toLowerCase().contains(q);
+          }).toList();
     final sortOrder = ref.watch(sortOrderProvider('downloads'));
     final sortedSongs = _sortDownloadsSongs(rawSongs, sortOrder);
     final currentSong = ref.watch(currentSongProvider).valueOrNull;
@@ -301,6 +312,55 @@ class DownloadsScreen extends ConsumerWidget {
                           ],
                         ),
                       ],
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
+                    child: TextField(
+                      onChanged: (value) =>
+                          ref.read(downloadsSearchQueryProvider.notifier).state =
+                              value,
+                      decoration: InputDecoration(
+                        hintText: 'Buscar descargas',
+                        hintStyle: TextStyle(
+                          color: colors.onSurfaceVariant.withValues(alpha: .6),
+                        ),
+                        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                        suffixIcon: searchQuery.isNotEmpty
+                            ? IconButton(
+                                tooltip: 'Limpiar búsqueda',
+                                icon: const Icon(Icons.close_rounded, size: 20),
+                                onPressed: () =>
+                                    ref
+                                        .read(downloadsSearchQueryProvider
+                                            .notifier)
+                                        .state = '',
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: colors.surfaceContainerHighest,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: colors.primary,
+                            width: 1.5,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),

@@ -290,10 +290,14 @@ class _PlaylistCard extends StatelessWidget {
                 shape: const CircleBorder(),
                 child: PopupMenuButton<String>(
                   tooltip: 'Opciones de la playlist',
-                  icon: const Icon(
-                    Icons.more_horiz_rounded,
-                    color: Colors.white,
-                    size: 21,
+                  icon: const SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: Icon(
+                      Icons.more_horiz_rounded,
+                      color: Colors.white,
+                      size: 21,
+                    ),
                   ),
                   onSelected: (value) {
                     if (value == 'delete') onDelete();

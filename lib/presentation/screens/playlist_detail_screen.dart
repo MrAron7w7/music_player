@@ -26,6 +26,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   final Set<String> _selected = <String>{};
   bool _selecting = false;
   bool _downloading = false;
+  String _searchQuery = '';
 
   PlaylistModel? get _playlist => ref
       .watch(playlistsProvider)
@@ -314,6 +315,14 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         .where((song) => downloadedIds.contains(song.id))
         .length;
     final colors = Theme.of(context).colorScheme;
+    final searchQuery = _searchQuery.trim();
+    final displaySongs = searchQuery.isEmpty
+        ? playlist.songs
+        : playlist.songs.where((song) {
+            final q = searchQuery.toLowerCase();
+            return song.title.toLowerCase().contains(q) ||
+                song.artists.join(' ').toLowerCase().contains(q);
+          }).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -434,20 +443,68 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+            child: TextField(
+              onChanged: (value) => setState(() => _searchQuery = value),
+              decoration: InputDecoration(
+                hintText: 'Buscar en la playlist',
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                suffixIcon: searchQuery.isNotEmpty
+                    ? IconButton(
+                        tooltip: 'Limpiar búsqueda',
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        onPressed: () => setState(() => _searchQuery = ''),
+                      )
+                    : null,
+                filled: true,
+                fillColor: colors.surfaceContainerHighest,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: colors.primary,
+                    width: 1.5,
+                  ),
+                ),
+              ),
+            ),
+          ),
           Expanded(
-            child: playlist.songs.isEmpty
-                ? const Center(child: Text('Añade canciones desde la búsqueda'))
+            child: displaySongs.isEmpty
+                ? const Center(child: Text('No se encontraron canciones'))
                 : ReorderableListView.builder(
                     buildDefaultDragHandles: false,
                     padding: const EdgeInsets.only(bottom: 100),
-                    itemCount: playlist.songs.length,
+                    itemCount: displaySongs.length,
                     // ignore: deprecated_member_use
-                    onReorder: (oldIndex, newIndex) {
-                      if (_selecting) return;
-                      _reorder(playlist, oldIndex, newIndex);
-                    },
+                    onReorder: searchQuery.isNotEmpty
+                        ? null
+                        : (oldIndex, newIndex) {
+                            if (_selecting) return;
+                            final oldSong = displaySongs[oldIndex];
+                            final oldIdx = playlist.songs.indexWhere(
+                                (s) => s.id == oldSong.id);
+                            final newSong = displaySongs[newIndex];
+                            final newIdx = playlist.songs.indexWhere(
+                                (s) => s.id == newSong.id);
+                            if (oldIdx >= 0 && newIdx >= 0) {
+                              _reorder(playlist, oldIdx, newIdx);
+                            }
+                          },
                     itemBuilder: (context, index) {
-                      final song = playlist.songs[index];
+                      final song = displaySongs[index];
                       final selected = _selected.contains(song.id);
                       final tile = SongTile(
                         song,
@@ -484,10 +541,12 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                               ),
                       );
                       return Dismissible(
-                        key: ValueKey('${song.id}-$index'),
-                        direction: _selecting
+                        key: ValueKey(song.id),
+                        direction: searchQuery.isNotEmpty
                             ? DismissDirection.none
-                            : DismissDirection.endToStart,
+                            : (_selecting
+                                ? DismissDirection.none
+                                : DismissDirection.endToStart),
                         background: Container(
                           alignment: Alignment.centerRight,
                           padding: const EdgeInsets.only(right: 24),
@@ -498,9 +557,27 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                           ),
                         ),
                         onDismissed: (_) {
+                          final removed = displaySongs[index];
                           final songs = List<SongModel>.of(playlist.songs)
-                            ..removeAt(index);
+                            ..removeWhere((s) => s.id == removed.id);
                           _persistSongs(playlist, songs);
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Quitada “${removed.title}” de la playlist',
+                              ),
+                              action: SnackBarAction(
+                                label: 'Deshacer',
+                                onPressed: () async {
+                                  final updated =
+                                      List<SongModel>.of(songs)
+                                        ..insert(index, removed);
+                                  await _persistSongs(playlist, updated);
+                                },
+                              ),
+                            ),
+                          );
                         },
                         child: tile,
                       );
@@ -557,6 +634,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     await ref
         .read(audioHandlerProvider)
         .playSongs(playlist.songs, startIndex: 0, shuffle: shuffle);
+    if (!context.mounted) return;
+    context.push('/now-playing');
   }
 
   Future<void> _confirmDelete(PlaylistModel playlist) async {

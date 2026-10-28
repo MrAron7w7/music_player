@@ -45,6 +45,7 @@ class MainScaffold extends ConsumerWidget {
               ),
               NavigationDestination(
                 icon: Icon(Icons.search_rounded),
+                selectedIcon: Icon(Icons.search_rounded),
                 label: 'Buscar',
               ),
               NavigationDestination(

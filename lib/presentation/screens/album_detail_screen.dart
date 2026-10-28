@@ -38,10 +38,17 @@ class AlbumDetailScreen extends ConsumerWidget {
           final downloadedCount = songs
               .where((song) => downloadedIds.contains(song.id))
               .length;
-          final progress = ref.watch(downloadProgressProvider).valueOrNull;
-          final downloading =
-              progress != null &&
-              songs.any((song) => progress.containsKey(song.id));
+          // Solo se reconstruye cuando cambia el progreso de las canciones de
+          // este álbum, no en cada tick de descarga (cada 100 ms).
+          final downloading = ref.watch(
+            downloadProgressProvider.select(
+              (progress) {
+                final map = progress.valueOrNull;
+                if (map == null) return false;
+                return songs.any((song) => map.containsKey(song.id));
+              },
+            ),
+          );
           return ListView(
             children: [
               Padding(
@@ -138,6 +145,7 @@ class AlbumDetailScreen extends ConsumerWidget {
                   entry.value,
                   playQueue: songs,
                   startIndex: entry.key,
+                  key: ValueKey(entry.value.id),
                 ),
               ),
             ],

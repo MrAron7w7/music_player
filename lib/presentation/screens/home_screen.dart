@@ -17,76 +17,28 @@ import '../widgets/album_art.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/song_tile.dart';
 
+Future<void> _playSongs(
+  BuildContext context,
+  WidgetRef ref,
+  List<SongModel> songs,
+  int index,
+) async {
+  ref.read(audioHandlerProvider).playSongs(
+    songs,
+    startIndex: index,
+    shuffle: false,
+  );
+  if (context.mounted) context.push('/now-playing');
+  unawaited(requestPlaybackNotificationPermission(context: context));
+}
+
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
-  String _greeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Buenos días';
-    if (hour < 19) return 'Buenas tardes';
-    return 'Buenas noches';
-  }
-
-  String _subtitle() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) return 'Empieza el día con tu música.';
-    if (hour < 19) return 'Tu banda sonora para esta tarde.';
-    return 'Relájate con lo que más te gusta.';
-  }
-
-  Future<void> _play(
-    BuildContext context,
-    WidgetRef ref,
-    List<SongModel> songs,
-    int index,
-  ) async {
-    final playback = ref
-        .read(audioHandlerProvider)
-        .playSongs(songs, startIndex: index, shuffle: false);
-    if (context.mounted) context.push('/now-playing');
-    unawaited(requestPlaybackNotificationPermission(context: context));
-    await playback;
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
     final offline = ref.watch(offlineModeProvider);
-    final active = ref.watch(selectedTabProvider) == 0;
-    final downloadedIds = (ref.watch(downloadsProvider).valueOrNull ?? const [])
-        .map((entry) => entry.song.id)
-        .toSet();
-    final history = ref.watch(historyProvider);
-    final favorites = ref.watch(favoritesProvider);
-    final recent = offline
-        ? history.where((song) => downloadedIds.contains(song.id)).toList()
-        : history;
-    final favoritesShown = offline
-        ? favorites.where((song) => downloadedIds.contains(song.id)).toList()
-        : favorites;
-    final playlists = ref.watch(playlistsProvider);
-    final recommendations = offline || !active
-        ? const AsyncValue<List<SongModel>>.data(<SongModel>[])
-        : ref.watch(homeRecommendationsProvider);
-    final forYou = recommendations.valueOrNull ?? const <SongModel>[];
-    final forYouError = recommendations.hasError ? recommendations.error : null;
-    final spotlightValue = offline || !active
-        ? null
-        : ref.watch(artistSpotlightProvider);
-    final spotlight = spotlightValue?.valueOrNull;
-    final spotlightError =
-        spotlightValue?.hasError == true ? spotlightValue!.error : null;
-    final forYouIds = forYou.map((song) => song.id).toSet();
-    final spotlightSongs = spotlight == null
-        ? const <SongModel>[]
-        : spotlight.songs
-              .where((song) => !forYouIds.contains(song.id))
-              .toList();
-    final albums = offline || !active
-        ? null
-        : ref.watch(homeRecentAlbumsProvider);
-    final hour = DateTime.now().hour;
-
+    final theme = Theme.of(context);
     return Scaffold(
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
@@ -110,7 +62,7 @@ class HomeScreen extends ConsumerWidget {
                     alpha: .12,
                   ),
                   child: Icon(
-                    hour >= 19
+                    DateTime.now().hour >= 19
                         ? Icons.nightlight_round
                         : Icons.headphones_rounded,
                     color: theme.colorScheme.primary,
@@ -122,206 +74,391 @@ class HomeScreen extends ConsumerWidget {
           ),
           SliverList.list(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(22, 8, 22, 4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _greeting(),
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -.9,
-                        height: 1.1,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _subtitle(),
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (offline)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 10, 22, 2),
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.tertiaryContainer.withValues(
-                        alpha: .55,
-                      ),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.cloud_off_rounded,
-                          color: theme.colorScheme.onTertiaryContainer,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Modo offline activo',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: theme.colorScheme.onTertiaryContainer,
-                                ),
-                              ),
-                              Text(
-                                'Solo se muestra y reproduce música descargada.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: theme.colorScheme.onTertiaryContainer
-                                      .withValues(alpha: .8),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              if (recent.isNotEmpty) ...[
-                const _SectionTitle(
-                  'Seguir escuchando',
-                  subtitle: 'Lo último que sonó en tu biblioteca',
-                ),
-                _SongRow(
-                  songs: recent.take(10).toList(),
-                  onPlay: (songs, index) => _play(context, ref, songs, index),
-                ),
-              ],
-              if (forYou.isEmpty &&
-                  recommendations.isLoading &&
-                  (recent.isNotEmpty || favorites.isNotEmpty))
-                const _CardsSkeleton()
-              else if (forYouError != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 28, 22, 12),
-                  child: EmptyState(
-                    icon: Icons.error_outline_rounded,
-                    title: 'No se pudieron cargar las recomendaciones',
-                    message: '$forYouError',
-                    onRetry: () => ref.invalidate(homeRecommendationsProvider),
-                  ),
-                )
-              else if (forYou.isNotEmpty) ...[
-                const _SectionTitle(
-                  'Hecho para ti',
-                  subtitle: 'Basado en tu historial y tus gustos',
-                ),
-                _SongRow(
-                  songs: forYou,
-                  onPlay: (songs, index) => _play(context, ref, songs, index),
-                  showBadge: true,
-                ),
-              ],
-              if (spotlightError != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 28, 22, 12),
-                  child: EmptyState(
-                    icon: Icons.error_outline_rounded,
-                    title: 'No se pudo cargar el spotlight del artista',
-                    message: '$spotlightError',
-                    onRetry: () => ref.invalidate(artistSpotlightProvider),
-                  ),
-                )
-              else if (spotlight != null && spotlightSongs.isNotEmpty) ...[
-                _SectionTitle(
-                  'Más de ${spotlight.artistName}',
-                  subtitle: 'Canciones y artistas parecidos a lo que estás escuchando',
-                ),
-                _SongRow(
-                  songs: spotlightSongs,
-                  onPlay: (songs, index) => _play(context, ref, songs, index),
-                ),
-              ],
-              if (albums != null && albums.isNotEmpty) ...[
-                const _SectionTitle(
-                  'Álbumes recientes',
-                  subtitle: 'Vuelve a escuchar los discos que te gustan',
-                ),
-                SizedBox(
-                  height: 208,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 22),
-                    itemCount: albums.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 16),
-                    itemBuilder: (context, index) {
-                      final album = albums[index];
-                      return _MediaCard(
-                        title: album.title,
-                        subtitle: album.artist,
-                        imageUrl: album.coverUrl,
-                        onTap: () => context.push('/album/${album.id}'),
-                      );
-                    },
-                  ),
-                ),
-              ],
-              if (playlists.isNotEmpty) ...[
-                const _SectionTitle(
-                  'Tus playlists',
-                  subtitle: 'Colecciones hechas a tu manera',
-                ),
-                SizedBox(
-                  height: 208,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 22),
-                    itemCount: playlists.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 16),
-                    itemBuilder: (context, index) {
-                      final playlist = playlists[index];
-                      return _MediaCard(
-                        title: playlist.name,
-                        subtitle: '${playlist.songs.length} canciones',
-                        imageUrl: playlist.coverUrl,
-                        onTap: () => context.push('/playlist/${playlist.id}'),
-                      );
-                    },
-                  ),
-                ),
-              ],
-              if (favoritesShown.isNotEmpty) ...[
-                const _SectionTitle(
-                  'Tus favoritos',
-                  subtitle: 'Las canciones que siempre quieres oír',
-                ),
-                ...favoritesShown
-                    .take(5)
-                    .toList()
-                    .asMap()
-                    .entries
-                    .map(
-                      (entry) => SongTile(
-                        entry.value,
-                        playQueue: favoritesShown,
-                        startIndex: entry.key,
-                      ),
-                    ),
-              ],
-              if (recent.isEmpty && favoritesShown.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(22, 30, 22, 0),
-                  child: _EmptyHomeCard(),
-                ),
+              const _GreetingHeader(),
+              if (offline) const _OfflineBanner(),
+              const _ContinueListeningSection(),
+              const _ForYouSection(),
+              const _SpotlightSection(),
+              const _RecentAlbumsSection(),
+              const _PlaylistsSection(),
+              const _FavoritesSection(),
+              const _EmptyHomeSection(),
               const SizedBox(height: 28),
             ],
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Saludo de bienvenida. Sin watches: nunca se reconstruye por cambios de datos.
+class _GreetingHeader extends ConsumerWidget {
+  const _GreetingHeader();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hour = DateTime.now().hour;
+    final greeting = hour < 12
+        ? 'Buenos días'
+        : hour < 19
+        ? 'Buenas tardes'
+        : 'Buenas noches';
+    final subtitle = hour < 12
+        ? 'Empieza el día con tu música.'
+        : hour < 19
+        ? 'Tu banda sonora para esta tarde.'
+        : 'Relájate con lo que más te gusta.';
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 8, 22, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            greeting,
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              letterSpacing: -.9,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Banner de modo offline. Solo observa `offlineModeProvider`.
+class _OfflineBanner extends ConsumerWidget {
+  const _OfflineBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final offline = ref.watch(offlineModeProvider);
+    if (!offline) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 10, 22, 2),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.tertiaryContainer.withValues(alpha: .55),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.cloud_off_rounded,
+              color: theme.colorScheme.onTertiaryContainer,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Modo offline activo',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.onTertiaryContainer,
+                    ),
+                  ),
+                  Text(
+                    'Solo se muestra y reproduce música descargada.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onTertiaryContainer
+                          .withValues(alpha: .8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Seguir escuchando: historial (filtrado por descargas si está offline).
+/// Solo se reconstruye cuando cambian historial, descargas o modo offline.
+class _ContinueListeningSection extends ConsumerWidget {
+  const _ContinueListeningSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final offline = ref.watch(offlineModeProvider);
+    final downloadedIds = (ref.watch(downloadsProvider).valueOrNull ?? const [])
+        .map((entry) => entry.song.id)
+        .toSet();
+    final history = ref.watch(historyProvider);
+    final recent = offline
+        ? history.where((song) => downloadedIds.contains(song.id)).toList()
+        : history;
+    if (recent.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          'Seguir escuchando',
+          subtitle: 'Lo último que sonó en tu biblioteca',
+        ),
+        _SongRow(
+          songs: recent.take(10).toList(),
+          onPlay: (songs, index) => _playSongs(context, ref, songs, index),
+        ),
+      ],
+    );
+  }
+}
+
+/// Hecho para ti: recomendaciones remotas con tarjeta de error y reintentar.
+class _ForYouSection extends ConsumerWidget {
+  const _ForYouSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final offline = ref.watch(offlineModeProvider);
+    final active = ref.watch(selectedTabProvider) == 0;
+    if (offline || !active) return const SizedBox.shrink();
+    final recommendations = ref.watch(homeRecommendationsProvider);
+    final forYou = recommendations.valueOrNull ?? const <SongModel>[];
+    final forYouError = recommendations.hasError ? recommendations.error : null;
+
+    if (forYou.isEmpty) {
+      if (recommendations.isLoading) return const _CardsSkeleton();
+      if (forYouError != null) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(22, 28, 22, 12),
+          child: EmptyState(
+            icon: Icons.error_outline_rounded,
+            title: 'No se pudieron cargar las recomendaciones',
+            message: '$forYouError',
+            onRetry: () => ref.invalidate(homeRecommendationsProvider),
+            retryLabel: 'Reintentar',
+          ),
+        );
+      }
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          'Hecho para ti',
+          subtitle: 'Basado en tu historial y tus gustos',
+        ),
+        _SongRow(
+          songs: forYou,
+          onPlay: (songs, index) => _playSongs(context, ref, songs, index),
+          showBadge: true,
+        ),
+      ],
+    );
+  }
+}
+
+/// Spotlight del artista de la canción actual.
+class _SpotlightSection extends ConsumerWidget {
+  const _SpotlightSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final offline = ref.watch(offlineModeProvider);
+    final active = ref.watch(selectedTabProvider) == 0;
+    if (offline || !active) return const SizedBox.shrink();
+    final spotlightValue = ref.watch(artistSpotlightProvider);
+    final spotlight = spotlightValue.valueOrNull;
+    final spotlightError = spotlightValue.hasError ? spotlightValue.error : null;
+
+    if (spotlightError != null) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(22, 28, 22, 12),
+        child: EmptyState(
+          icon: Icons.error_outline_rounded,
+          title: 'No se pudo cargar el spotlight del artista',
+          message: '$spotlightError',
+          onRetry: () => ref.invalidate(artistSpotlightProvider),
+          retryLabel: 'Reintentar',
+        ),
+      );
+    }
+    if (spotlight == null) return const SizedBox.shrink();
+    final forYou = ref.watch(homeRecommendationsProvider).valueOrNull ??
+        const <SongModel>[];
+    final forYouIds = forYou.map((song) => song.id).toSet();
+    final spotlightSongs = spotlight.songs
+        .where((song) => !forYouIds.contains(song.id))
+        .toList();
+    if (spotlightSongs.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle(
+          'Más de ${spotlight.artistName}',
+          subtitle:
+              'Canciones y artistas parecidos a lo que estás escuchando',
+        ),
+        _SongRow(
+          songs: spotlightSongs,
+          onPlay: (songs, index) => _playSongs(context, ref, songs, index),
+        ),
+      ],
+    );
+  }
+}
+
+/// Álbumes recientes del historial.
+class _RecentAlbumsSection extends ConsumerWidget {
+  const _RecentAlbumsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final offline = ref.watch(offlineModeProvider);
+    final active = ref.watch(selectedTabProvider) == 0;
+    if (offline || !active) return const SizedBox.shrink();
+    final albums = ref.watch(homeRecentAlbumsProvider);
+    if (albums.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          'Álbumes recientes',
+          subtitle: 'Vuelve a escuchar los discos que te gustan',
+        ),
+        SizedBox(
+          height: 208,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 22),
+            itemCount: albums.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 16),
+            itemBuilder: (context, index) {
+              final album = albums[index];
+              return _MediaCard(
+                title: album.title,
+                subtitle: album.artist,
+                imageUrl: album.coverUrl,
+                onTap: () => context.push('/album/${album.id}'),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Tus playlists.
+class _PlaylistsSection extends ConsumerWidget {
+  const _PlaylistsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final playlists = ref.watch(playlistsProvider);
+    if (playlists.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          'Tus playlists',
+          subtitle: 'Colecciones hechas a tu manera',
+        ),
+        SizedBox(
+          height: 208,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 22),
+            itemCount: playlists.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 16),
+            itemBuilder: (context, index) {
+              final playlist = playlists[index];
+              return _MediaCard(
+                title: playlist.name,
+                subtitle: '${playlist.songs.length} canciones',
+                imageUrl: playlist.coverUrl,
+                onTap: () => context.push('/playlist/${playlist.id}'),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Tus favoritos (filtrado por descargas si está offline).
+class _FavoritesSection extends ConsumerWidget {
+  const _FavoritesSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final offline = ref.watch(offlineModeProvider);
+    final downloadedIds = (ref.watch(downloadsProvider).valueOrNull ?? const [])
+        .map((entry) => entry.song.id)
+        .toSet();
+    final favorites = ref.watch(favoritesProvider);
+    final favoritesShown = offline
+        ? favorites.where((song) => downloadedIds.contains(song.id)).toList()
+        : favorites;
+    if (favoritesShown.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          'Tus favoritos',
+          subtitle: 'Las canciones que siempre quieres oír',
+        ),
+        ...favoritesShown
+            .take(5)
+            .toList()
+            .asMap()
+            .entries
+            .map(
+              (entry) => SongTile(
+                entry.value,
+                playQueue: favoritesShown,
+                startIndex: entry.key,
+              ),
+            ),
+      ],
+    );
+  }
+}
+
+/// Pantalla vacía cuando no hay historial ni favoritos.
+class _EmptyHomeSection extends ConsumerWidget {
+  const _EmptyHomeSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final offline = ref.watch(offlineModeProvider);
+    final downloadedIds = (ref.watch(downloadsProvider).valueOrNull ?? const [])
+        .map((entry) => entry.song.id)
+        .toSet();
+    final history = ref.watch(historyProvider);
+    final favorites = ref.watch(favoritesProvider);
+    final recent = offline
+        ? history.where((song) => downloadedIds.contains(song.id)).toList()
+        : history;
+    final favoritesShown = offline
+        ? favorites.where((song) => downloadedIds.contains(song.id)).toList()
+        : favorites;
+    if (recent.isNotEmpty || favoritesShown.isNotEmpty) return const SizedBox.shrink();
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(22, 30, 22, 0),
+      child: _EmptyHomeCard(),
     );
   }
 }
@@ -339,23 +476,23 @@ class _SongRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 222,
-    child: ListView.separated(
-      scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 22),
-      itemCount: songs.length,
-      separatorBuilder: (_, _) => const SizedBox(width: 16),
-      itemBuilder: (context, index) {
-        final song = songs[index];
-        return _SongCard(
-          song: song,
-          badge: showBadge ? 'PARA TI' : null,
-          onTap: () => onPlay(songs, index),
-        );
-      },
-    ),
-  );
+        height: 222,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 22),
+          itemCount: songs.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 16),
+          itemBuilder: (context, index) {
+            final song = songs[index];
+            return _SongCard(
+              song: song,
+              badge: showBadge ? 'PARA TI' : null,
+              onTap: () => onPlay(songs, index),
+            );
+          },
+        ),
+      );
 }
 
 class _SongCard extends StatelessWidget {

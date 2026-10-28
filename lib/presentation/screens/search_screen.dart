@@ -96,8 +96,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final query = ref.watch(searchQueryProvider).trim();
     // Only request the active tab. The service caches each query, so returning
     // to another tab is still fast without three simultaneous network calls.
-    final songs = !offline && tab == 0
-        ? ref.watch(searchResultsProvider)
+    final songsState = !offline && tab == 0
+        ? ref.watch(searchSongsProvider(query))
         : null;
     final albums = !offline && tab == 1
         ? ref.watch(searchAlbumsProvider)
@@ -121,28 +121,35 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         message: 'Busca canciones, artistas o álbumes para encontrar tu próximo favorito.',
       );
     } else if (tab == 0) {
-      content = songs!.when(
-        data: (items) => items.isEmpty
-            ? const EmptyState(
-                icon: Icons.music_off_rounded,
-                title: 'No encontramos canciones',
-                message: 'Prueba con otro nombre o con el artista.',
-              )
-            : ListView.builder(
-                itemCount: items.length,
-                // La cola se construye de forma inteligente a partir de la
-                // canción elegida; no encadenamos todos los resultados.
-                itemBuilder: (_, index) => SongTile(items[index]),
-              ),
-        loading: () => const LoadingShimmer(),
-        error: (_, _) => EmptyState(
-          icon: Icons.wifi_off_rounded,
-          title: 'No se pudo completar la búsqueda',
-          message: 'Comprueba tu conexión e inténtalo de nuevo.',
-          onRetry: () => ref.invalidate(searchResultsProvider),
-          retryLabel: 'Reintentar',
-        ),
-      );
+      final state = songsState!;
+      content = state.error != null && state.songs.isEmpty
+          ? EmptyState(
+              icon: Icons.wifi_off_rounded,
+              title: 'No se pudo completar la búsqueda',
+              message: 'Comprueba tu conexión e inténtalo de nuevo.',
+              onRetry: () =>
+                  ref.read(searchSongsProvider(query).notifier).retry(),
+              retryLabel: 'Reintentar',
+            )
+          : ListView.builder(
+              itemCount: state.songs.length +
+                  (state.hasMore && !state.loadingMore ? 1 : 0),
+              // La cola se construye de forma inteligente a partir de la
+              // canción elegida; no encadenamos todos los resultados.
+              itemBuilder: (_, index) {
+                if (index == state.songs.length) {
+                  return _SearchLoadMore(
+                    loading: state.loadingMore,
+                    onPressed: state.loadingMore
+                        ? null
+                        : () => ref
+                            .read(searchSongsProvider(query).notifier)
+                            .loadMore(),
+                  );
+                }
+                return SongTile(state.songs[index]);
+              },
+            );
     } else if (tab == 1) {
       content = albums!.when(
         data: (items) => items.isEmpty
@@ -367,6 +374,32 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Botón "Cargar más" al final de la lista de canciones de búsqueda.
+class _SearchLoadMore extends StatelessWidget {
+  const _SearchLoadMore({this.loading = false, this.onPressed});
+
+  final bool loading;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 60,
+      child: Center(
+        child: loading
+            ? const Padding(
+                padding: EdgeInsets.all(8),
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : FilledButton.tonal(
+                onPressed: onPressed,
+                child: const Text('Cargar más'),
+              ),
       ),
     );
   }

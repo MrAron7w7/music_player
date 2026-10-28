@@ -95,13 +95,14 @@ class YtService {
 
   Future<List<Map<String, dynamic>>> _search(
     String q,
-    SearchFilterType type,
-  ) async => _cached(
-    'search:${type.name}:${_queryKey(q)}:20',
+    SearchFilterType type, {
+    int limit = 20,
+  }) async => _cached(
+    'search:${type.name}:${_queryKey(q)}:$limit',
     () async => (await api.search(
       q,
       filter: type,
-      limit: 20,
+      limit: limit,
     )).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
     ttl: const Duration(minutes: 10),
     persistTtl: const Duration(hours: 6),
@@ -140,10 +141,12 @@ class YtService {
   Future<List<AlbumModel>> searchAlbums(String q) async => (await _search(
     q,
     SearchFilterType.albums,
+    limit: 40,
   )).map(AlbumModel.fromJson).toList();
   Future<List<ArtistModel>> searchArtists(String q) async => (await _search(
     q,
     SearchFilterType.artists,
+    limit: 40,
   )).map(ArtistModel.fromJson).toList();
 
   Future<SongModel?> getSongDetails(String id) => _cached(

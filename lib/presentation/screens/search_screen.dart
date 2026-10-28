@@ -135,10 +135,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 itemBuilder: (_, index) => SongTile(items[index]),
               ),
         loading: () => const LoadingShimmer(),
-        error: (_, _) => const EmptyState(
+        error: (_, _) => EmptyState(
           icon: Icons.wifi_off_rounded,
           title: 'No se pudo completar la búsqueda',
           message: 'Comprueba tu conexión e inténtalo de nuevo.',
+          onRetry: () => ref.invalidate(searchResultsProvider),
+          retryLabel: 'Reintentar',
         ),
       );
     } else if (tab == 1) {
@@ -180,9 +182,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 },
               ),
         loading: () => const LoadingShimmer(),
-        error: (_, _) => const EmptyState(
+        error: (_, _) => EmptyState(
           icon: Icons.wifi_off_rounded,
           title: 'No se pudieron cargar álbumes',
+          onRetry: () => ref.invalidate(searchAlbumsProvider),
+          retryLabel: 'Reintentar',
         ),
       );
     } else {
@@ -231,9 +235,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 },
               ),
         loading: () => const LoadingShimmer(),
-        error: (_, _) => const EmptyState(
+        error: (_, _) => EmptyState(
           icon: Icons.wifi_off_rounded,
           title: 'No se pudieron cargar artistas',
+          onRetry: () => ref.invalidate(searchArtistsProvider),
+          retryLabel: 'Reintentar',
         ),
       );
     }

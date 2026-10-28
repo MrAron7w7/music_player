@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/models/song_model.dart';
 import '../data/services/app_cache.dart';
 import '../data/services/listening_stats_service.dart';
-import '../data/services/yt_service.dart';
 import 'cache_providers.dart';
 import 'downloads_providers.dart';
 import 'library_providers.dart';
@@ -117,11 +116,15 @@ final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>(
     if (artistIds.length >= 2) break;
   }
 
+  Object? firstError;
+  StackTrace? firstStack;
   final relatedBatches = await Future.wait(
     seeds.take(2).map((song) async {
       try {
         return await yt.getRelatedSongs(song.id);
-      } catch (_) {
+      } catch (e, st) {
+        firstError ??= e;
+        firstStack ??= st;
         return <SongModel>[];
       }
     }),
@@ -130,13 +133,20 @@ final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>(
     artistIds.take(2).map((id) async {
       try {
         return await yt.getArtistRecommendations(id, limit: 14);
-      } catch (_) {
+      } catch (e, st) {
+        firstError ??= e;
+        firstStack ??= st;
         return <SongModel>[];
       }
     }),
   );
   final batches = [...relatedBatches, ...artistBatches];
-  if (batches.isEmpty) return const [];
+  if (batches.isEmpty || batches.every((batch) => batch.isEmpty)) {
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError!, firstStack!);
+    }
+    return const [];
+  }
 
   final excluded = <String>{
     for (final song in history) song.id,
@@ -223,7 +233,7 @@ final artistSpotlightProvider = FutureProvider.autoDispose<ArtistSpotlight?>((
     current.id,
     for (final song in history.take(24)) song.id,
   };
-  final songs = await _safeArtistRecommendations(yt, artistId);
+  final songs = await yt.getArtistRecommendations(artistId, limit: 14);
   final seen = <String>{...excluded};
   final artistCounts = <String, int>{};
   final result = <SongModel>[];
@@ -255,17 +265,6 @@ final artistSpotlightProvider = FutureProvider.autoDispose<ArtistSpotlight?>((
 
 String _artistKey(SongModel song) =>
     song.artists.isEmpty ? '' : song.artists.first.trim().toLowerCase();
-
-Future<List<SongModel>> _safeArtistRecommendations(
-  YtService yt,
-  String artistId,
-) async {
-  try {
-    return await yt.getArtistRecommendations(artistId, limit: 14);
-  } catch (_) {
-    return const [];
-  }
-}
 
 /// Álbumes que aparecen en el historial, en orden de escucha reciente.
 final homeRecentAlbumsProvider = Provider.autoDispose<List<RecentAlbum>>((ref) {

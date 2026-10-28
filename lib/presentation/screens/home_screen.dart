@@ -14,6 +14,7 @@ import '../../providers/navigation_providers.dart';
 import '../../providers/player_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../widgets/album_art.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/song_tile.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -68,9 +69,13 @@ class HomeScreen extends ConsumerWidget {
         ? const AsyncValue<List<SongModel>>.data(<SongModel>[])
         : ref.watch(homeRecommendationsProvider);
     final forYou = recommendations.valueOrNull ?? const <SongModel>[];
-    final spotlight = offline || !active
+    final forYouError = recommendations.hasError ? recommendations.error : null;
+    final spotlightValue = offline || !active
         ? null
-        : ref.watch(artistSpotlightProvider).valueOrNull;
+        : ref.watch(artistSpotlightProvider);
+    final spotlight = spotlightValue?.valueOrNull;
+    final spotlightError =
+        spotlightValue?.hasError == true ? spotlightValue!.error : null;
     final forYouIds = forYou.map((song) => song.id).toSet();
     final spotlightSongs = spotlight == null
         ? const <SongModel>[]
@@ -198,6 +203,16 @@ class HomeScreen extends ConsumerWidget {
                   recommendations.isLoading &&
                   (recent.isNotEmpty || favorites.isNotEmpty))
                 const _CardsSkeleton()
+              else if (forYouError != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 28, 22, 12),
+                  child: EmptyState(
+                    icon: Icons.error_outline_rounded,
+                    title: 'No se pudieron cargar las recomendaciones',
+                    message: '$forYouError',
+                    onRetry: () => ref.invalidate(homeRecommendationsProvider),
+                  ),
+                )
               else if (forYou.isNotEmpty) ...[
                 const _SectionTitle(
                   'Hecho para ti',
@@ -209,7 +224,17 @@ class HomeScreen extends ConsumerWidget {
                   showBadge: true,
                 ),
               ],
-              if (spotlight != null && spotlightSongs.isNotEmpty) ...[
+              if (spotlightError != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 28, 22, 12),
+                  child: EmptyState(
+                    icon: Icons.error_outline_rounded,
+                    title: 'No se pudo cargar el spotlight del artista',
+                    message: '$spotlightError',
+                    onRetry: () => ref.invalidate(artistSpotlightProvider),
+                  ),
+                )
+              else if (spotlight != null && spotlightSongs.isNotEmpty) ...[
                 _SectionTitle(
                   'Más de ${spotlight.artistName}',
                   subtitle: 'Canciones y artistas parecidos a lo que estás escuchando',

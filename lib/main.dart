@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -32,6 +33,9 @@ late final LocalRepository localRepository;
 late final DownloadService downloadService;
 late final ListeningStatsService statsService;
 late final MusicAudioHandler audioHandler;
+late final AppCache appCache;
+late final AudioCacheService audioCache;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
@@ -44,10 +48,10 @@ Future<void> main() async {
     Hive.openBox(AppConstants.statsBox),
   ]);
   final cacheBox = await Hive.openBox(AppConstants.cacheBox);
-  final appCache = AppCache(cacheBox);
+  appCache = AppCache(cacheBox);
   localRepository = LocalRepository(boxes[0], boxes[1], boxes[2], boxes[3]);
   final temporaryDirectory = await getTemporaryDirectory();
-  final audioCache = AudioCacheService(
+  audioCache = AudioCacheService(
     Directory(
       '${temporaryDirectory.path}${Platform.pathSeparator}melody_audio',
     ),
@@ -57,7 +61,8 @@ Future<void> main() async {
     defaultValue: AudioCacheService.defaultMaxBytes,
   );
   if (storedLimit is int) audioCache.setLimitBytes(storedLimit);
-  await audioCache.init();
+  // audioCache.init(), downloadService.init(), statsService.init() y
+  // restoreSession() se ejecutan tras el primer frame para no bloquear la UI.
 
   final session = await AudioSession.instance;
   await session.configure(const AudioSessionConfiguration.music());
@@ -93,10 +98,8 @@ Future<void> main() async {
         ) ==
         true,
   );
-  await downloadService.init();
 
   statsService = ListeningStatsService(boxes[5]);
-  await statsService.init();
 
   AppTheme.themeMode.value = switch (localRepository.settings.get(
     'themeMode',
@@ -144,7 +147,7 @@ Future<void> main() async {
     'autoPlayRelated',
     defaultValue: true,
   ) as bool;
-  await audioHandler.restoreSession();
+
   runApp(
     ProviderScope(
       overrides: [
@@ -160,4 +163,23 @@ Future<void> main() async {
       child: const MusicApp(),
     ),
   );
+
+  // Inicialización pesada detrás del primer frame: la UI ya es visible y
+  // estas operaciones (escaneo de disco, existeSync por descarga, lectura de
+  // stats y restauración de sesión) no retrasan el arranque en frío.
+  unawaited(_initializeAfterFirstFrame());
+}
+
+/// Inicialización pesada que no debe bloquear el primer frame.
+///
+/// Se ejecuta tras mostrar la UI. Las guardas existentes en cada servicio
+/// evita carreras si el usuario interactúa antes de que termine (p. ej.
+/// `restoreSession` no inicia una sesión si ya hay cola cargada).
+Future<void> _initializeAfterFirstFrame() async {
+  // Permitir que el primer frame se dibuje antes de iniciar trabajo pesado.
+  await Future<void>.delayed(Duration.zero);
+  await audioCache.init();
+  await downloadService.init();
+  await statsService.init();
+  await audioHandler.restoreSession();
 }

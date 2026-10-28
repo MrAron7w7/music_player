@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/utils/notification_permissions.dart';
 import '../../data/models/playlist_model.dart';
@@ -473,10 +474,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: colors.primary,
-                    width: 1.5,
-                  ),
+                  borderSide: BorderSide(color: colors.primary, width: 1.5),
                 ),
               ),
             ),
@@ -495,10 +493,12 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                             if (_selecting) return;
                             final oldSong = displaySongs[oldIndex];
                             final oldIdx = playlist.songs.indexWhere(
-                                (s) => s.id == oldSong.id);
+                              (s) => s.id == oldSong.id,
+                            );
                             final newSong = displaySongs[newIndex];
                             final newIdx = playlist.songs.indexWhere(
-                                (s) => s.id == newSong.id);
+                              (s) => s.id == newSong.id,
+                            );
                             if (oldIdx >= 0 && newIdx >= 0) {
                               _reorder(playlist, oldIdx, newIdx);
                             }
@@ -545,8 +545,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                         direction: searchQuery.isNotEmpty
                             ? DismissDirection.none
                             : (_selecting
-                                ? DismissDirection.none
-                                : DismissDirection.endToStart),
+                                  ? DismissDirection.none
+                                  : DismissDirection.endToStart),
                         background: Container(
                           alignment: Alignment.centerRight,
                           padding: const EdgeInsets.only(right: 24),
@@ -570,9 +570,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                               action: SnackBarAction(
                                 label: 'Deshacer',
                                 onPressed: () async {
-                                  final updated =
-                                      List<SongModel>.of(songs)
-                                        ..insert(index, removed);
+                                  final updated = List<SongModel>.of(songs)
+                                    ..insert(index, removed);
                                   await _persistSongs(playlist, updated);
                                 },
                               ),
@@ -630,11 +629,12 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   }
 
   Future<void> _playAll(PlaylistModel playlist, {required bool shuffle}) async {
+    if (!mounted) return;
     unawaited(requestPlaybackNotificationPermission(context: context));
     await ref
         .read(audioHandlerProvider)
         .playSongs(playlist.songs, startIndex: 0, shuffle: shuffle);
-    if (!context.mounted) return;
+    if (!mounted) return;
     context.push('/now-playing');
   }
 

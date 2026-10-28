@@ -217,12 +217,12 @@ class _LibraryCollectionScreenState
   }
 
   String _sortLabel(String order) => switch (order) {
-        'default' => 'Por defecto (recientes)',
-        'title' => 'Título A-Z',
-        'artist' => 'Artista',
-        'duration' => 'Duración',
-        _ => 'Por defecto (recientes)',
-      };
+    'default' => 'Por defecto (recientes)',
+    'title' => 'Título A-Z',
+    'artist' => 'Artista',
+    'duration' => 'Duración',
+    _ => 'Por defecto (recientes)',
+  };
 
   void _showSortOrderSheet() {
     final sortKey = widget.collection == LibraryCollection.favorites
@@ -443,25 +443,26 @@ class _LibraryCollectionScreenState
                             onPressed: () => setState(() => _searchQuery = ''),
                           )
                         : null,
-                  filled: true,
-                  fillColor: colors.surfaceContainerHighest,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: colors.primary,
-                      width: 1.5,
+                    filled: true,
+                    fillColor: colors.surfaceContainerHighest,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: colors.primary,
+                        width: 1.5,
+                      ),
                     ),
                   ),
                 ),

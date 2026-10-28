@@ -15,4 +15,5 @@ class AppConstants {
   static const offlineModeKey = 'offlineMode';
   static const headsetAutoplayKey = 'headsetAutoplay';
   static const cacheLimitKey = 'audioCacheLimitBytes';
+  static const playbackSpeedKey = 'playbackSpeed';
 }

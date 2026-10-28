@@ -68,13 +68,28 @@ class MusicAudioHandler extends BaseAudioHandler
     _listenAudioSession();
     _listenConnectivity();
     _reloadCrossfadeSettings();
+    _reloadPlaybackSpeed();
     // El ticker solo arranca cuando hay reproducción activa (ver _emitPlaying).
     _settingsSubscription = _settings.watch().listen((event) {
       if (event.key == AppConstants.crossfadeEnabledKey ||
           event.key == AppConstants.crossfadeSecondsKey) {
         _reloadCrossfadeSettings();
       }
+      if (event.key == AppConstants.playbackSpeedKey) {
+        _reloadPlaybackSpeed();
+      }
     });
+  }
+
+  void _reloadPlaybackSpeed() {
+    final saved = _settings.get(AppConstants.playbackSpeedKey);
+    final value = (saved is num ? saved.toDouble() : 1.0).clamp(0.5, 2.0);
+    if ((_speed - value).abs() > 0.0001) {
+      _speed = value;
+      for (final player in _players) {
+        unawaited(player.setSpeed(value));
+      }
+    }
   }
 
   void _reloadCrossfadeSettings() {
@@ -166,6 +181,12 @@ class MusicAudioHandler extends BaseAudioHandler
   bool _crossfadeEnabledCache = false;
   Duration _crossfadeDurationCache = const Duration(seconds: 3);
 
+  /// Velocidad de reproducción actual (1.0 por defecto).
+  double _speed = 1.0;
+
+  /// Velocidad de reproducción actual, expuesta a la UI.
+  double get speed => _speed;
+
   // La cola serializada se reutiliza entre guardados periódicos; solo se
   // reescribe cuando la cola cambia de verdad.
   List<Map<String, dynamic>>? _sessionQueueJson;
@@ -221,6 +242,19 @@ class MusicAudioHandler extends BaseAudioHandler
   }
 
   AudioPlayer get player => _active;
+
+  /// Establece la velocidad de reproducción, la persiste y la aplica a ambos
+  /// players (activo y de crossfade).
+  Future<void> setPlaybackSpeed(double speed) async {
+    final clamped = speed.clamp(0.5, 2.0);
+    if ((_speed - clamped).abs() < 0.0001) return;
+    _speed = clamped;
+    await _settings.put(AppConstants.playbackSpeedKey, clamped);
+    for (final player in _players) {
+      await player.setSpeed(clamped);
+    }
+    _broadcastState();
+  }
 
   // ---------------------------------------------------------------------------
   // Inicialización de audio, auriculares y foco
@@ -598,6 +632,8 @@ class MusicAudioHandler extends BaseAudioHandler
 
       try {
         await _active.setAudioSource(source);
+        await _active.setSpeed(_speed);
+        await _standby.setSpeed(_speed);
       } catch (error) {
         // La URL pudo caducar: se reintenta una vez con URL fresca.
         if (requestId != _playRequestId) return;
@@ -610,6 +646,8 @@ class MusicAudioHandler extends BaseAudioHandler
         );
         if (requestId != _playRequestId) return;
         await _active.setAudioSource(retry);
+        await _active.setSpeed(_speed);
+        await _standby.setSpeed(_speed);
       }
       if (requestId != _playRequestId) return;
 

@@ -86,6 +86,15 @@ class CacheUsage {
   int get totalBytes => audioBytes + metadataBytes + coverBytes;
 }
 
+/// Velocidad de reproducción persistida (0.5x, 0.75x, 1x, 1.25x, 1.5x, 2x).
+final playbackSpeedProvider = StateProvider<double>((ref) {
+  final saved = ref
+      .watch(localRepositoryProvider)
+      .settings
+      .get(AppConstants.playbackSpeedKey);
+  return saved is num ? saved.toDouble().clamp(0.5, 2.0) : 1.0;
+});
+
 final cacheUsageProvider = FutureProvider.autoDispose<CacheUsage>((ref) async {
   final audio = ref.watch(audioCacheProvider);
   final appCache = ref.watch(appCacheProvider);

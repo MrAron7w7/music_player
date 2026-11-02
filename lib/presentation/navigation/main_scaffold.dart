@@ -22,32 +22,45 @@ class MainScaffold extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final index = ref.watch(selectedTabProvider);
-    return Scaffold(
-      body: SafeArea(
-        child: IndexedStack(index: index, children: _pages),
+    final theme = Theme.of(context);
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      // Mantiene el estilo de las barras del sistema igual que en el
+      // reproductor a pantalla completa, para que no "salten" al navegar.
+      value: (theme.brightness == Brightness.dark
+          ? SystemUiOverlayStyle.light
+          : SystemUiOverlayStyle.dark).copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: theme.colorScheme.surface,
+        systemNavigationBarIconBrightness: theme.brightness == Brightness.dark
+            ? Brightness.light
+            : Brightness.dark,
       ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const MiniPlayer(),
-          NavigationBar(
-            selectedIndex: index,
-            onDestinationSelected: (i) {
-              if (i == index) return;
-              HapticFeedback.selectionClick();
-              ref.read(selectedTabProvider.notifier).state = i;
-            },
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home_rounded),
-                label: 'Inicio',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.search_rounded),
-                selectedIcon: Icon(Icons.search_rounded),
-                label: 'Buscar',
-              ),
+      child: Scaffold(
+        body: SafeArea(
+          child: IndexedStack(index: index, children: _pages),
+        ),
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const MiniPlayer(),
+            NavigationBar(
+              selectedIndex: index,
+              onDestinationSelected: (i) {
+                if (i == index) return;
+                HapticFeedback.selectionClick();
+                ref.read(selectedTabProvider.notifier).state = i;
+              },
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home_rounded),
+                  label: 'Inicio',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.search_outlined),
+                  selectedIcon: Icon(Icons.search_rounded),
+                  label: 'Buscar',
+                ),
               NavigationDestination(
                 icon: Icon(Icons.library_music_outlined),
                 selectedIcon: Icon(Icons.library_music_rounded),
@@ -58,9 +71,10 @@ class MainScaffold extends ConsumerWidget {
                 selectedIcon: Icon(Icons.settings_rounded),
                 label: 'Ajustes',
               ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

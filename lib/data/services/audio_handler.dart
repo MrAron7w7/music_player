@@ -524,6 +524,8 @@ class MusicAudioHandler extends BaseAudioHandler
         return 'Esta canción ya no está disponible.';
       case SongUnavailableReason.streamError:
         return 'No se pudo obtener el audio de esta canción.';
+      case SongUnavailableReason.signInRequired:
+        return 'YouTube pidió verificar la sesión. Inténtalo de nuevo en unos segundos.';
       case SongUnavailableReason.apiError:
         return 'No se pudo conectar con YouTube. Inténtalo de nuevo.';
     }
@@ -579,7 +581,7 @@ class MusicAudioHandler extends BaseAudioHandler
     // ~25 s en total. Si la red está caída, se muestra el error y se permite
     // reintentar en lugar de encadenar esperas por cada calidad.
     final deadline = DateTime.now().add(const Duration(seconds: 26));
-    SongUnavailableException? lastTransitory;
+    SongUnavailableException? lastError;
     for (final quality in MusicRepository.fallbackChain(preferred)) {
       final remaining = deadline.difference(DateTime.now());
       if (remaining <= Duration.zero) break;
@@ -594,21 +596,26 @@ class MusicAudioHandler extends BaseAudioHandler
             )
             .timeout(remaining, onTimeout: () => null);
       } on SongUnavailableException catch (e) {
-        if (e.reason == SongUnavailableReason.apiError ||
-            e.reason == SongUnavailableReason.streamError) {
-          lastTransitory = e;
-          continue;
+        // Un fallo del primer cliente no significa que la canción no exista:
+        // probamos siempre la siguiente calidad/ruta antes de rendirnos y nos
+        // quedamos con el motivo más informativo.
+        if (lastError == null ||
+            MusicRepository.reasonPriority(e.reason) >
+                MusicRepository.reasonPriority(lastError.reason)) {
+          lastError = e;
         }
+        continue;
+      } on _NoConnection {
         rethrow;
       }
       if (uri != null) {
         return AudioSource.uri(uri, tag: _mediaItem(song));
       }
     }
-    throw lastTransitory ??
-        const _PlaybackFailure(
-          'No se pudo obtener el audio. Puede que el video no esté disponible.',
-        );
+    if (lastError != null) throw lastError;
+    throw const _PlaybackFailure(
+      'No se pudo obtener el audio. Puede que el video no esté disponible.',
+    );
   }
 
   Future<void> _loadCurrent({

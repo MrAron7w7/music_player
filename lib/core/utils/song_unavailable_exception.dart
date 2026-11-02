@@ -11,6 +11,9 @@ enum SongUnavailableReason {
   purchaseRequired,
   /// Error al obtener o descifrar el stream de audio.
   streamError,
+  /// YouTube pide verificar la sesión (inicio de sesión o captcha) antes de
+  /// entregar el audio. Puede resolverse reintentando más tarde.
+  signInRequired,
   /// Error de la API de YouTube o de red al resolver el manifiesto.
   apiError,
 }

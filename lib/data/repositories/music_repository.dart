@@ -73,29 +73,48 @@ class MusicRepository {
     }
   }
 
-  Future<StreamManifest?> _manifest(
-    String id, {
-    required bool requireWatchPage,
-  }) async {
+  /// Resuelve el manifiesto sin lanzar: devuelve también el motivo del fallo.
+  ///
+  /// Un fallo de un cliente de YouTube no debe abortar la resolución completa:
+  /// el llamador reintenta con la watch page y con otras calidades antes de
+  /// dar la canción por no disponible. Ese era el motivo por el que todas las
+  /// canciones mostraban "restringida por edad" tras la primera petición
+  /// fallida.
+  Future<({StreamManifest? manifest, SongUnavailableException? error})>
+  _manifest(String id, {required bool requireWatchPage}) async {
     try {
       final manifest = await explode.videos.streams
           .getManifest(id, requireWatchPage: requireWatchPage)
           .timeout(const Duration(seconds: 11));
-      return manifest.audioOnly.isEmpty ? null : manifest;
+      if (manifest.audioOnly.isEmpty) {
+        return (
+          manifest: null,
+          error: const SongUnavailableException(SongUnavailableReason.streamError),
+        );
+      }
+      return (manifest: manifest, error: null);
     } on VideoRequiresPurchaseException catch (e) {
-      throw SongUnavailableException(
-        SongUnavailableReason.purchaseRequired,
-        e,
+      return (
+        manifest: null,
+        error: SongUnavailableException(
+          SongUnavailableReason.purchaseRequired,
+          e,
+        ),
       );
     } on VideoUnavailableException catch (e) {
-      throw SongUnavailableException(
-        _classifyUnavailable(e.toString()),
-        e,
+      return (
+        manifest: null,
+        error: SongUnavailableException(_classifyUnavailable(e.toString()), e),
       );
     } on VideoUnplayableException catch (e) {
-      throw SongUnavailableException(
-        _classifyUnavailable(e.toString()),
-        e,
+      return (
+        manifest: null,
+        error: SongUnavailableException(_classifyUnavailable(e.toString()), e),
+      );
+    } catch (e) {
+      return (
+        manifest: null,
+        error: SongUnavailableException(SongUnavailableReason.apiError, e),
       );
     }
   }
@@ -103,40 +122,75 @@ class MusicRepository {
   /// Clasifica el motivo de un `VideoUnavailableException` a partir de su
   /// mensaje. YouTube no expone un código de error estable, así que es una
   /// aproximación basada en el texto del error.
+  ///
+  /// Importante: no buscamos la subcadena `age` a secas, porque aparece dentro
+  /// de palabras como `message` o `page` y marcaba como restringidas canciones
+  /// que sí podían reproducirse.
   static SongUnavailableReason _classifyUnavailable(String text) {
     final lower = text.toLowerCase();
-    if (lower.contains('age') || lower.contains('edad')) {
+    if (lower.contains('age-restricted') ||
+        lower.contains('age restricted') ||
+        lower.contains('inappropriate for some users')) {
       return SongUnavailableReason.ageRestricted;
     }
     if (lower.contains('country') ||
         lower.contains('region') ||
-        lower.contains('región')) {
+        lower.contains('región') ||
+        lower.contains('not available in your')) {
       return SongUnavailableReason.regionRestricted;
+    }
+    // Muros de verificación de YouTube ("Sign in to confirm you're not a bot"
+    // o "Sign in to confirm your age"): no son un fallo definitivo de la
+    // canción, se reintentan y se muestra un mensaje distinto.
+    if (lower.contains('sign in') ||
+        lower.contains('login') ||
+        lower.contains('not a bot') ||
+        lower.contains('confirm your age')) {
+      return SongUnavailableReason.signInRequired;
     }
     return SongUnavailableReason.unavailable;
   }
+
+  /// Prioridad para elegir el mensaje final cuando fallan varias rutas.
+  static int reasonPriority(SongUnavailableReason reason) => switch (reason) {
+    SongUnavailableReason.purchaseRequired => 5,
+    SongUnavailableReason.ageRestricted => 4,
+    SongUnavailableReason.regionRestricted => 3,
+    SongUnavailableReason.unavailable => 2,
+    SongUnavailableReason.signInRequired => 1,
+    SongUnavailableReason.streamError => 1,
+    SongUnavailableReason.apiError => 0,
+  };
 
   Future<Uri?> _resolveAudioStreamUrl(
     String id,
     AudioQuality quality, {
     bool requireWatchPage = false,
   }) async {
-    SongUnavailableException? lastTransitory;
+    SongUnavailableException? lastError;
     for (var attempt = 0; attempt < 2; attempt++) {
-      try {
-        // El cliente VisionOS no necesita la watch page para resolver el
-        // manifiesto, y saltarla ahorra una petición (~300 ms). Si falla, se
-        // reintenta con la watch page, que es la ruta más compatible.
-        var manifest = await _manifest(id, requireWatchPage: requireWatchPage);
-        if (manifest == null && !requireWatchPage) {
-          manifest = await _manifest(id, requireWatchPage: true);
+      // El cliente VisionOS no necesita la watch page para resolver el
+      // manifiesto, y saltarla ahorra una petición (~300 ms). Si falla, se
+      // reintenta con la watch page, que es la ruta más compatible.
+      var result = await _manifest(id, requireWatchPage: requireWatchPage);
+      var manifest = result.manifest;
+      if (result.error != null &&
+          (lastError == null ||
+              reasonPriority(result.error!.reason) >
+                  reasonPriority(lastError.reason))) {
+        lastError = result.error;
+      }
+      if (manifest == null && !requireWatchPage) {
+        result = await _manifest(id, requireWatchPage: true);
+        manifest = result.manifest;
+        if (result.error != null &&
+            (lastError == null ||
+                reasonPriority(result.error!.reason) >
+                    reasonPriority(lastError.reason))) {
+          lastError = result.error;
         }
-        if (manifest == null) {
-          if (attempt == 0) {
-            await Future<void>.delayed(const Duration(milliseconds: 450));
-          }
-          continue;
-        }
+      }
+      if (manifest != null) {
         final streams = manifest.audioOnly.toList()
           ..sort(
             (a, b) =>
@@ -148,22 +202,12 @@ class MusicRepository {
           AudioQuality.low => streams.length - 1,
         };
         return streams[index.clamp(0, streams.length - 1)].url;
-      } on SongUnavailableException catch (e) {
-        // Las causas definitivas (edad, región, compra, eliminado) no se
-        // solucionan probando otra calidad: se propagan. Las transitorias
-        // (API/red) se acumulan para reintentar con la siguiente calidad.
-        if (e.reason == SongUnavailableReason.apiError ||
-            e.reason == SongUnavailableReason.streamError) {
-          lastTransitory = e;
-        } else {
-          rethrow;
-        }
       }
       if (attempt == 0) {
         await Future<void>.delayed(const Duration(milliseconds: 450));
       }
     }
-    if (lastTransitory != null) throw lastTransitory;
+    if (lastError != null) throw lastError;
     return null;
   }
 

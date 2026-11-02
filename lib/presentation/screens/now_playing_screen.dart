@@ -15,6 +15,7 @@ import '../../providers/downloads_providers.dart';
 import '../../providers/library_providers.dart';
 import '../../providers/music_providers.dart';
 import '../../providers/player_providers.dart';
+import '../../providers/settings_providers.dart';
 import '../widgets/album_art.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/lyrics_sheet.dart';
@@ -77,6 +78,53 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
       ),
     );
     if (mounted) setState(() => _lyricsOpen = false);
+  }
+
+  /// Abre el selector de velocidad de reproducción.
+  Future<void> _showSpeedSheet() async {
+    HapticFeedback.selectionClick();
+    final current = ref.read(playbackSpeedProvider);
+    final options = const <double>[0.5, 0.75, 1, 1.25, 1.5, 2];
+    final selected = await showModalBottomSheet<double>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(title: Text('Velocidad de reproducción')),
+            ...options.map(
+              (option) => ListTile(
+                leading: Icon(
+                  Icons.check_circle_rounded,
+                  color: option == current ? theme.colorScheme.primary : null,
+                  size: 20,
+                ),
+                title: Text(
+                  '${option.toStringAsFixed(option == option.roundToDouble() ? 0 : 1)}x',
+                ),
+                onTap: () => Navigator.pop(sheetContext, option),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    if (selected == null || !mounted) return;
+    final handler = ref.read(audioHandlerProvider);
+    await handler.setPlaybackSpeed(selected);
+    ref.read(playbackSpeedProvider.notifier).state = selected;
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${selected.toStringAsFixed(selected == selected.roundToDouble() ? 0 : 1)}x',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   Future<void> _addToPlaylist(SongModel song) async {
@@ -679,6 +727,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
       '$bitrate kbps',
       if (estimatedBytes > 0) formatBytes(estimatedBytes),
     ].join(' • ');
+    final speed = ref.watch(playbackSpeedProvider);
+    final speedText = '${speed.toStringAsFixed(speed == speed.roundToDouble() ? 0 : 1)}x';
     final isError = processingState == AudioProcessingState.error;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -966,10 +1016,12 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                 _PlayerActionsBar(
                                   lyricsOpen: _lyricsOpen,
                                   bluetoothName: bluetooth?.name,
+                                  speed: speedText,
                                   onLyrics: () => _showLyrics(song),
                                   onQueue: () => _showQueue(),
                                   onAudioOutput: () =>
                                       _showAudioOutput(bluetooth?.name),
+                                  onSpeed: _showSpeedSheet,
                                 ),
                                 if (isError)
                                   Padding(
@@ -1125,16 +1177,20 @@ class _PlayerActionsBar extends StatelessWidget {
   const _PlayerActionsBar({
     required this.lyricsOpen,
     required this.bluetoothName,
+    required this.speed,
     required this.onLyrics,
     required this.onQueue,
     required this.onAudioOutput,
+    required this.onSpeed,
   });
 
   final bool lyricsOpen;
   final String? bluetoothName;
+  final String speed;
   final VoidCallback onLyrics;
   final VoidCallback onQueue;
   final VoidCallback onAudioOutput;
+  final VoidCallback onSpeed;
 
   @override
   Widget build(BuildContext context) {
@@ -1171,6 +1227,11 @@ class _PlayerActionsBar extends StatelessWidget {
             label: deviceLabel,
             active: bluetooth,
             onPressed: onAudioOutput,
+          ),
+          _PlayerAction(
+            icon: Icons.speed_rounded,
+            label: speed,
+            onPressed: onSpeed,
           ),
         ],
       ),

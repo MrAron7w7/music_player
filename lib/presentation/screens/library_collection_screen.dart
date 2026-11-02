@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/utils/extensions.dart';
 import '../../core/utils/notification_permissions.dart';
 import '../../data/models/playlist_model.dart';
@@ -35,6 +36,7 @@ class _LibraryCollectionScreenState
   final Set<String> _selected = <String>{};
   bool _selecting = false;
   bool _downloading = false;
+  String _searchQuery = '';
 
   String get _title => switch (widget.collection) {
     LibraryCollection.favorites => 'Favoritos',
@@ -188,6 +190,78 @@ class _LibraryCollectionScreenState
     ref.invalidate(historyProvider);
   }
 
+  /// Ordena una copia de las canciones según el criterio elegido por el
+  /// usuario, sin modificar el orden de inserción original de la colección.
+  List<SongModel> _sortSongs(List<SongModel> songs, String order) {
+    final result = List<SongModel>.from(songs);
+    switch (order) {
+      case 'title':
+        result.sort(
+          (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+        );
+      case 'artist':
+        result.sort((a, b) {
+          final aa = a.artists.isNotEmpty ? a.artists.first.toLowerCase() : '';
+          final bb = b.artists.isNotEmpty ? b.artists.first.toLowerCase() : '';
+          return aa.compareTo(bb);
+        });
+      case 'duration':
+        result.sort((a, b) =>
+            (a.duration ?? Duration.zero).compareTo(b.duration ?? Duration.zero));
+      case 'default':
+      default:
+        // Mantiene el orden de inserción (más recientes primero).
+        break;
+    }
+    return result;
+  }
+
+  String _sortLabel(String order) => switch (order) {
+    'default' => 'Por defecto (recientes)',
+    'title' => 'Título A-Z',
+    'artist' => 'Artista',
+    'duration' => 'Duración',
+    _ => 'Por defecto (recientes)',
+  };
+
+  void _showSortOrderSheet() {
+    final sortKey = widget.collection == LibraryCollection.favorites
+        ? 'favorites'
+        : 'history';
+    final current = ref.read(sortOrderProvider(sortKey));
+    showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const ListTile(title: Text('Ordenar canciones')),
+          ...const <String>['default', 'title', 'artist', 'duration'].map(
+            (value) => ListTile(
+              leading: Icon(
+                Icons.check_rounded,
+                color: value == current
+                    ? Theme.of(sheetContext).colorScheme.primary
+                    : null,
+                size: 20,
+              ),
+              title: Text(_sortLabel(value)),
+              onTap: () => Navigator.pop(sheetContext, value),
+            ),
+          ),
+        ],
+      ),
+    ).then((selected) {
+      if (selected == null || !mounted) return;
+      final repository = ref.read(localRepositoryProvider);
+      final key = sortKey == 'favorites'
+          ? AppConstants.sortFavoritesKey
+          : AppConstants.sortHistoryKey;
+      repository.settings.put(key, selected);
+      ref.read(sortOrderProvider(sortKey).notifier).state = selected;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final favorites = ref.watch(favoritesProvider);
@@ -198,13 +272,26 @@ class _LibraryCollectionScreenState
     final downloads = ref.watch(downloadsProvider).valueOrNull ?? const [];
     final offline = ref.watch(offlineModeProvider);
     final downloadedIds = downloads.map((entry) => entry.song.id).toSet();
+    final searchQuery = _searchQuery.trim();
+    final filteredSource = searchQuery.isEmpty
+        ? source
+        : source.where((song) {
+            final q = searchQuery.toLowerCase();
+            return song.title.toLowerCase().contains(q) ||
+                song.artists.join(' ').toLowerCase().contains(q);
+          }).toList();
     final visibleSongs = offline
-        ? source.where((song) => downloadedIds.contains(song.id)).toList()
-        : source;
-    final selectedSongs = visibleSongs
+        ? filteredSource.where((song) => downloadedIds.contains(song.id)).toList()
+        : filteredSource;
+    final sortKey = widget.collection == LibraryCollection.favorites
+        ? 'favorites'
+        : 'history';
+    final sortOrder = ref.watch(sortOrderProvider(sortKey));
+    final sortedSongs = _sortSongs(visibleSongs, sortOrder);
+    final selectedSongs = sortedSongs
         .where((song) => _selected.contains(song.id))
         .toList();
-    final totalDuration = visibleSongs.fold<Duration>(
+    final totalDuration = sortedSongs.fold<Duration>(
       Duration.zero,
       (total, song) => total + (song.duration ?? Duration.zero),
     );
@@ -227,10 +314,10 @@ class _LibraryCollectionScreenState
                 IconButton(
                   tooltip: 'Seleccionar todo',
                   onPressed: () => setState(() {
-                    if (_selected.length == visibleSongs.length) {
+                    if (_selected.length == sortedSongs.length) {
                       _selected.clear();
                     } else {
-                      _selected.addAll(visibleSongs.map((song) => song.id));
+                      _selected.addAll(sortedSongs.map((song) => song.id));
                     }
                   }),
                   icon: const Icon(Icons.select_all_rounded),
@@ -250,8 +337,13 @@ class _LibraryCollectionScreenState
                     ],
                   ),
                 IconButton(
+                  tooltip: 'Ordenar',
+                  onPressed: _showSortOrderSheet,
+                  icon: const Icon(Icons.sort_rounded),
+                ),
+                IconButton(
                   tooltip: 'Seleccionar canciones',
-                  onPressed: visibleSongs.isEmpty
+                  onPressed: searchQuery.isEmpty && sortedSongs.isEmpty
                       ? null
                       : () => setState(() => _selecting = true),
                   icon: const Icon(Icons.checklist_rounded),
@@ -268,14 +360,14 @@ class _LibraryCollectionScreenState
               subtitle: widget.collection == LibraryCollection.favorites
                   ? 'Las canciones que guardaste con el corazón.'
                   : 'Tu recorrido musical, de lo más reciente a lo más antiguo.',
-              count: visibleSongs.length,
+              count: sortedSongs.length,
               duration: totalDuration,
-              coverUrl: visibleSongs.firstOrNull?.artworkUrl,
+              coverUrl: sortedSongs.firstOrNull?.artworkUrl,
               icon: _icon,
               gradient: _gradient,
-              enabled: visibleSongs.isNotEmpty,
-              onPlay: () => _playAll(visibleSongs, shuffle: false),
-              onShuffle: () => _playAll(visibleSongs, shuffle: true),
+              enabled: sortedSongs.isNotEmpty,
+              onPlay: () => _playAll(sortedSongs, shuffle: false),
+              onShuffle: () => _playAll(sortedSongs, shuffle: true),
             ),
           ),
           if (offline)
@@ -314,7 +406,7 @@ class _LibraryCollectionScreenState
                 ),
               ),
             ),
-          if (visibleSongs.isEmpty)
+          if (sortedSongs.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
               child: EmptyState(
@@ -338,6 +430,46 @@ class _LibraryCollectionScreenState
           else ...[
             SliverToBoxAdapter(
               child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
+                child: TextField(
+                  onChanged: (value) => setState(() => _searchQuery = value),
+                  decoration: InputDecoration(
+                    hintText: 'Buscar en ${_title.toLowerCase()}',
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                    suffixIcon: searchQuery.isNotEmpty
+                        ? IconButton(
+                            tooltip: 'Limpiar búsqueda',
+                            icon: const Icon(Icons.close_rounded, size: 20),
+                            onPressed: () => setState(() => _searchQuery = ''),
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: colors.surfaceContainerHighest,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: colors.primary,
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 2, 20, 6),
                 child: Row(
                   children: [
@@ -350,7 +482,7 @@ class _LibraryCollectionScreenState
                     ),
                     const Spacer(),
                     Text(
-                      '${visibleSongs.length}',
+                      '${sortedSongs.length}',
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color: colors.onSurfaceVariant,
                         fontWeight: FontWeight.w600,
@@ -361,12 +493,12 @@ class _LibraryCollectionScreenState
               ),
             ),
             SliverList.builder(
-              itemCount: visibleSongs.length,
+              itemCount: sortedSongs.length,
               itemBuilder: (context, index) {
-                final song = visibleSongs[index];
+                final song = sortedSongs[index];
                 return SongTile(
                   song,
-                  playQueue: visibleSongs,
+                  playQueue: sortedSongs,
                   startIndex: index,
                   selectionMode: _selecting,
                   selected: _selected.contains(song.id),

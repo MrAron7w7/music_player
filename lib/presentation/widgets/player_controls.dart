@@ -45,7 +45,7 @@ class PlayerControls extends ConsumerWidget {
           icon: Icon(
             Icons.shuffle_rounded,
             size: 22,
-            color: foreground.withValues(alpha: shuffle ? 1 : .48),
+            color: foreground.withValues(alpha: shuffle ? 1 : .7),
           ),
         ),
         IconButton(
@@ -77,7 +77,9 @@ class PlayerControls extends ConsumerWidget {
                 },
         ),
         IconButton(
-          tooltip: 'Siguiente',
+          tooltip: handler.nextUsesSmartQueue
+              ? 'Siguiente (radio relacionada)'
+              : 'Siguiente',
           visualDensity: VisualDensity.compact,
           onPressed: handler.hasNext
               ? () {
@@ -88,7 +90,9 @@ class PlayerControls extends ConsumerWidget {
           icon: Icon(
             Icons.skip_next_rounded,
             size: 44,
-            color: foreground.withValues(alpha: handler.hasNext ? .95 : .25),
+            color: foreground.withValues(
+              alpha: (handler.hasNext || handler.nextUsesSmartQueue) ? .95 : .25,
+            ),
           ),
         ),
         IconButton(

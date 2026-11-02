@@ -96,6 +96,8 @@ class ListeningStatsService {
   final _changes = StreamController<StatsSnapshot>.broadcast();
   List<RecentPlay> _recent = [];
   Timer? _emitTimer;
+  bool _dirty = true;
+  StatsSnapshot? _cachedSnapshot;
 
   static const _recentKey = 'recentPlays';
   static const _maxRecent = 150;
@@ -117,7 +119,8 @@ class ListeningStatsService {
           .whereType<RecentPlay>()
           .toList();
     }
-    _changes.add(snapshot());
+    _dirty = true;
+    _scheduleEmit();
   }
 
   SongStat? _songStat(String id) {
@@ -156,6 +159,7 @@ class ListeningStatsService {
       _recent = _recent.take(_maxRecent).toList();
     }
     await box.put(_recentKey, _recent.map((e) => e.toJson()).toList());
+    _dirty = true;
     _scheduleEmit();
   }
 
@@ -176,18 +180,16 @@ class ListeningStatsService {
     final key = 'day:${_dateKey(DateTime.now())}';
     final daySeconds = (box.get(key) as num?)?.toInt() ?? 0;
     await box.put(key, daySeconds + seconds);
+    _dirty = true;
     _scheduleEmit();
   }
 
-  /// Emite como máximo cada 2 segundos para no reconstruir la UI en cada tick.
-  void _scheduleEmit() {
-    if (_emitTimer?.isActive ?? false) return;
-    _emitTimer = Timer(const Duration(seconds: 2), () {
-      _changes.add(snapshot());
-    });
-  }
-
+  /// Devuelve el snapshot cacheado si no hay cambios pendientes y no se
+  /// pasa un momento distinto. Recalcula solo cuando algo cambió.
   StatsSnapshot snapshot([DateTime? now]) {
+    if (!_dirty && now == null && _cachedSnapshot != null) {
+      return _cachedSnapshot!;
+    }
     final moment = now ?? DateTime.now();
     final songs = <SongStat>[];
     for (final key in box.keys) {
@@ -242,7 +244,7 @@ class ListeningStatsService {
       monthSeconds += dayTotal(DateTime(moment.year, moment.month, day));
     }
 
-    return StatsSnapshot(
+    final result = StatsSnapshot(
       topSongs: topSongs.take(20).toList(),
       topArtists: topArtists.take(10).toList(),
       recent: List.unmodifiable(_recent),
@@ -252,6 +254,31 @@ class ListeningStatsService {
       monthSeconds: monthSeconds,
       totalPlays: songs.fold(0, (total, stat) => total + stat.plays),
     );
+    if (now == null) {
+      _cachedSnapshot = result;
+      _dirty = false;
+    }
+    return result;
+  }
+
+  /// Emite solo si hay alguien escuchando y hay cambios pendientes.
+  void _scheduleEmit() {
+    if (!_changes.hasListener) {
+      _dirty = true;
+      return;
+    }
+    if (_emitTimer?.isActive ?? false) return;
+    _emitTimer = Timer(const Duration(seconds: 2), () {
+      _emitTimer = null;
+      if (!_changes.hasListener) return;
+      if (_dirty) {
+        _changes.add(snapshot());
+        _dirty = false;
+      }
+      if (_dirty && _changes.hasListener) {
+        _scheduleEmit();
+      }
+    });
   }
 
   Future<void> clear() async {
@@ -265,7 +292,10 @@ class ListeningStatsService {
     await box.deleteAll(keys);
     await box.delete(_recentKey);
     _recent = [];
-    _changes.add(snapshot());
+    _dirty = true;
+    if (_changes.hasListener) {
+      _changes.add(snapshot());
+    }
   }
 
   Future<void> dispose() async {

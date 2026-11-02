@@ -29,6 +29,10 @@ class YtService {
     Object? Function(T value)? encode,
     T Function(Object? data)? decode,
     Duration timeout = const Duration(seconds: 14),
+    /// Si se proporciona y devuelve `false`, el resultado no se guarda ni en
+    /// caché de memoria ni en disco (útil para evitar cachear listas vacías
+    /// o fallos parciales).
+    bool Function(T value)? cacheIf,
   }) async {
     final entry = _cache[key];
     if (entry != null && DateTime.now().difference(entry.createdAt) < ttl) {
@@ -43,6 +47,9 @@ class YtService {
       if (stored != null) {
         try {
           final value = decode(stored);
+          if (cacheIf != null && !cacheIf(value)) {
+            return value;
+          }
           _cache[key] = (value: value, createdAt: DateTime.now());
           return value;
         } catch (_) {
@@ -58,6 +65,9 @@ class YtService {
     _pending[key] = request;
     try {
       final value = await request;
+      if (cacheIf != null && !cacheIf(value)) {
+        return value;
+      }
       _cache[key] = (value: value, createdAt: DateTime.now());
       while (_cache.length > 100) {
         _cache.remove(_cache.keys.first);
@@ -85,13 +95,14 @@ class YtService {
 
   Future<List<Map<String, dynamic>>> _search(
     String q,
-    SearchFilterType type,
-  ) async => _cached(
-    'search:${type.name}:${_queryKey(q)}:20',
+    SearchFilterType type, {
+    int limit = 20,
+  }) async => _cached(
+    'search:${type.name}:${_queryKey(q)}:$limit',
     () async => (await api.search(
       q,
       filter: type,
-      limit: 20,
+      limit: limit,
     )).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
     ttl: const Duration(minutes: 10),
     persistTtl: const Duration(hours: 6),
@@ -130,10 +141,12 @@ class YtService {
   Future<List<AlbumModel>> searchAlbums(String q) async => (await _search(
     q,
     SearchFilterType.albums,
+    limit: 40,
   )).map(AlbumModel.fromJson).toList();
   Future<List<ArtistModel>> searchArtists(String q) async => (await _search(
     q,
     SearchFilterType.artists,
+    limit: 40,
   )).map(ArtistModel.fromJson).toList();
 
   Future<SongModel?> getSongDetails(String id) => _cached(
@@ -182,8 +195,10 @@ class YtService {
       }
 
       Map<String, dynamic>? watch;
+      bool watchLoaded = false;
       try {
         watch = await api.getWatchPlaylist(videoId: videoId, limit: 30);
+        watchLoaded = true;
       } catch (_) {
         try {
           watch = await api.getWatchPlaylist(
@@ -191,9 +206,14 @@ class YtService {
             limit: 30,
             radio: true,
           );
+          watchLoaded = true;
         } catch (_) {
           watch = null;
         }
+      }
+
+      if (!watchLoaded) {
+        throw StateError('No se pudo cargar la lista de reproducción relacionada de este video.');
       }
 
       if (watch != null) {
@@ -219,6 +239,7 @@ class YtService {
     persistTtl: const Duration(hours: 6),
     persistMaxEntries: 200,
     timeout: const Duration(seconds: 22),
+    cacheIf: (songs) => songs.isNotEmpty,
     encode: (songs) => songs.map((song) => song.toJson()).toList(),
     decode: (data) => (data as List)
         .whereType<Map>()
@@ -481,6 +502,73 @@ class YtService {
             .where((song) => song.id.isNotEmpty)
             .toList(),
       );
+
+  /// Página pública de un artista: nombre, portada, canciones top y álbumes.
+  Future<ArtistPageModel> getArtistPage(String id) => _cached(
+    'artistPageModel:v2:$id',
+    () async {
+      final j = await _artistPage(id);
+      final name = '${j['name'] ?? 'Artista'}';
+      final thumb = SongModel.fromJson(j).thumbnailUrl;
+      final topSongs = await getArtistSongs(id);
+      final albumRaw = j['albums'];
+      final params =
+          albumRaw is Map ? albumRaw['params'] as String? : null;
+      final albumes = <AlbumModel>[];
+      if (params != null && params.isNotEmpty) {
+        try {
+          final rawAlbums = await api.getArtistAlbums(id, params, limit: 24);
+          for (final a in rawAlbums.whereType<Map>()) {
+            try {
+              final map = Map<String, dynamic>.from(a);
+              map['id'] = '${map['browseId'] ?? map['id'] ?? ''}';
+              if (map['id'].isEmpty) continue;
+              map['title'] ??= '${map['title'] ?? 'Álbum'}';
+              final artists = (map['artists'] as List? ?? const [])
+                  .whereType<Map>()
+                  .map((e) => '${e['name'] ?? e}')
+                  .whereType<String>()
+                  .toList();
+              map['artists'] = artists;
+              albumes.add(AlbumModel.fromJson(map));
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }
+      return ArtistPageModel(
+        name: name,
+        thumb: thumb,
+        cancionesTop: topSongs,
+        albumes: albumes,
+      );
+    },
+    ttl: const Duration(minutes: 30),
+    persistTtl: const Duration(hours: 12),
+    persistMaxEntries: 100,
+    encode: (page) => {
+      'name': page.name,
+      'thumb': page.thumb,
+      'cancionesTop': page.cancionesTop.map((s) => s.toJson()).toList(),
+      'albumes': page.albumes.map((a) => a.toJson()).toList(),
+    },
+    decode: (data) {
+      final d = Map<String, dynamic>.from(data as Map);
+      return ArtistPageModel(
+        name: '${d['name'] ?? 'Artista'}',
+        thumb: d['thumb'] as String?,
+        cancionesTop: (d['cancionesTop'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => SongModel.fromJson(Map<String, dynamic>.from(e)))
+            .where((s) => s.id.isNotEmpty)
+            .toList(),
+        albumes: (d['albumes'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => AlbumModel.fromJson(Map<String, dynamic>.from(e)))
+            .where((a) => a.id.isNotEmpty)
+            .toList(),
+      );
+    },
+  );
 
   /// Recomendaciones contextuales de un artista: sus canciones más conocidas
   /// y su radio, intercaladas y sin duplicados.

@@ -14,7 +14,9 @@ import 'package:just_audio/just_audio.dart';
 
 import '../models/song_model.dart';
 import '../repositories/music_repository.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/utils/artwork_url.dart';
+import '../../core/utils/song_unavailable_exception.dart';
 import 'download_service.dart';
 import 'listening_stats_service.dart';
 
@@ -65,10 +67,51 @@ class MusicAudioHandler extends BaseAudioHandler
     }
     _listenAudioSession();
     _listenConnectivity();
-    _ticker = Timer.periodic(
-      const Duration(milliseconds: 750),
-      (_) => _onTick(),
+    _reloadCrossfadeSettings();
+    _reloadPlaybackSpeed();
+    // El ticker solo arranca cuando hay reproducción activa (ver _emitPlaying).
+    _settingsSubscription = _settings.watch().listen((event) {
+      if (event.key == AppConstants.crossfadeEnabledKey ||
+          event.key == AppConstants.crossfadeSecondsKey) {
+        _reloadCrossfadeSettings();
+      }
+      if (event.key == AppConstants.playbackSpeedKey) {
+        _reloadPlaybackSpeed();
+      }
+    });
+  }
+
+  void _reloadPlaybackSpeed() {
+    final saved = _settings.get(AppConstants.playbackSpeedKey);
+    final value = (saved is num ? saved.toDouble() : 1.0).clamp(0.5, 2.0);
+    if ((_speed - value).abs() > 0.0001) {
+      _speed = value;
+      for (final player in _players) {
+        unawaited(player.setSpeed(value));
+      }
+    }
+  }
+
+  void _reloadCrossfadeSettings() {
+    _crossfadeEnabledCache =
+        _settings.get(AppConstants.crossfadeEnabledKey, defaultValue: false) ==
+            true;
+    final seconds = _settings.get(
+      AppConstants.crossfadeSecondsKey,
+      defaultValue: 3,
     );
+    final value = seconds is int ? seconds : 3;
+    _crossfadeDurationCache = Duration(seconds: value.clamp(1, 12));
+  }
+
+  void _startTicker() {
+    _ticker?.cancel();
+    _ticker = Timer.periodic(const Duration(milliseconds: 750), (_) => _onTick());
+  }
+
+  void _stopTicker() {
+    _ticker?.cancel();
+    _ticker = null;
   }
 
   final MusicRepository repository;
@@ -127,11 +170,22 @@ class MusicAudioHandler extends BaseAudioHandler
   StreamSubscription? _noisySubscription;
   StreamSubscription? _devicesSubscription;
   StreamSubscription? _connectivitySubscription;
+  StreamSubscription? _settingsSubscription;
   bool? _online;
   bool? _lastPlayingEmitted;
   Duration? _lastDurationEmitted;
   String _lastStateSignature = '';
   DateTime _lastStateAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Caché de los valores de crossfade para no leer Hive en cada tick.
+  bool _crossfadeEnabledCache = false;
+  Duration _crossfadeDurationCache = const Duration(seconds: 3);
+
+  /// Velocidad de reproducción actual (1.0 por defecto).
+  double _speed = 1.0;
+
+  /// Velocidad de reproducción actual, expuesta a la UI.
+  double get speed => _speed;
 
   // La cola serializada se reutiliza entre guardados periódicos; solo se
   // reescribe cuando la cola cambia de verdad.
@@ -156,6 +210,14 @@ class MusicAudioHandler extends BaseAudioHandler
           _repeatMode == AudioServiceRepeatMode.all ||
           autoPlayRelated);
   bool get hasPrevious => _currentIndex > 0;
+
+  /// Si al pulsar siguiente en el último elemento se usará la cola
+  /// inteligente (autoPlayRelated). Útil para el tooltip del botón.
+  bool get nextUsesSmartQueue =>
+      autoPlayRelated &&
+      _currentIndex >= 0 &&
+      currentSong != null &&
+      _currentIndex >= _queueSongs.length - 1;
   double get currentVolume => _active.volume;
 
   /// Solo la intención explícita del usuario decide si el próximo cambio de
@@ -189,6 +251,19 @@ class MusicAudioHandler extends BaseAudioHandler
 
   AudioPlayer get player => _active;
 
+  /// Establece la velocidad de reproducción, la persiste y la aplica a ambos
+  /// players (activo y de crossfade).
+  Future<void> setPlaybackSpeed(double speed) async {
+    final clamped = speed.clamp(0.5, 2.0);
+    if ((_speed - clamped).abs() < 0.0001) return;
+    _speed = clamped;
+    await _settings.put(AppConstants.playbackSpeedKey, clamped);
+    for (final player in _players) {
+      await player.setSpeed(clamped);
+    }
+    _broadcastState();
+  }
+
   // ---------------------------------------------------------------------------
   // Inicialización de audio, auriculares y foco
   // ---------------------------------------------------------------------------
@@ -197,6 +272,11 @@ class MusicAudioHandler extends BaseAudioHandler
     if (_lastPlayingEmitted == value) return;
     _lastPlayingEmitted = value;
     _playingController.add(value);
+    if (value && _currentIndex >= 0) {
+      _startTicker();
+    } else {
+      _stopTicker();
+    }
   }
 
   void _emitDuration(Duration? value) {
@@ -413,6 +493,8 @@ class MusicAudioHandler extends BaseAudioHandler
       _PlaybackFailure(:final message) => message,
       _NoConnection() =>
         'Sin conexión a internet. Revisa tu red e inténtalo de nuevo.',
+      SongUnavailableException(:final SongUnavailableReason reason) =>
+        _unavailableMessage(reason),
       _ => message ?? 'No se pudo reproducir esta canción. Inténtalo de nuevo.',
     };
     _errorMessage = friendly;
@@ -428,6 +510,23 @@ class MusicAudioHandler extends BaseAudioHandler
       ),
     );
     _positionController.add(_resumePosition);
+  }
+
+  String _unavailableMessage(SongUnavailableReason reason) {
+    switch (reason) {
+      case SongUnavailableReason.ageRestricted:
+        return 'Esta canción está restringida por edad.';
+      case SongUnavailableReason.regionRestricted:
+        return 'Esta canción no está disponible en tu región.';
+      case SongUnavailableReason.purchaseRequired:
+        return 'Esta canción requiere compra o alquiler.';
+      case SongUnavailableReason.unavailable:
+        return 'Esta canción ya no está disponible.';
+      case SongUnavailableReason.streamError:
+        return 'No se pudo obtener el audio de esta canción.';
+      case SongUnavailableReason.apiError:
+        return 'No se pudo conectar con YouTube. Inténtalo de nuevo.';
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -480,24 +579,36 @@ class MusicAudioHandler extends BaseAudioHandler
     // ~25 s en total. Si la red está caída, se muestra el error y se permite
     // reintentar en lugar de encadenar esperas por cada calidad.
     final deadline = DateTime.now().add(const Duration(seconds: 26));
+    SongUnavailableException? lastTransitory;
     for (final quality in MusicRepository.fallbackChain(preferred)) {
       final remaining = deadline.difference(DateTime.now());
       if (remaining <= Duration.zero) break;
-      final uri = await repository
-          .getAudioStreamUrl(
-            song.id,
-            quality: quality,
-            forceRefresh: forceRefresh || quality != preferred,
-            requireWatchPage: requireWatchPage || quality != preferred,
-          )
-          .timeout(remaining, onTimeout: () => null);
+      Uri? uri;
+      try {
+        uri = await repository
+            .getAudioStreamUrl(
+              song.id,
+              quality: quality,
+              forceRefresh: forceRefresh || quality != preferred,
+              requireWatchPage: requireWatchPage || quality != preferred,
+            )
+            .timeout(remaining, onTimeout: () => null);
+      } on SongUnavailableException catch (e) {
+        if (e.reason == SongUnavailableReason.apiError ||
+            e.reason == SongUnavailableReason.streamError) {
+          lastTransitory = e;
+          continue;
+        }
+        rethrow;
+      }
       if (uri != null) {
         return AudioSource.uri(uri, tag: _mediaItem(song));
       }
     }
-    throw const _PlaybackFailure(
-      'No se pudo obtener el audio. Puede que el video no esté disponible.',
-    );
+    throw lastTransitory ??
+        const _PlaybackFailure(
+          'No se pudo obtener el audio. Puede que el video no esté disponible.',
+        );
   }
 
   Future<void> _loadCurrent({
@@ -529,6 +640,8 @@ class MusicAudioHandler extends BaseAudioHandler
 
       try {
         await _active.setAudioSource(source);
+        await _active.setSpeed(_speed);
+        await _standby.setSpeed(_speed);
       } catch (error) {
         // La URL pudo caducar: se reintenta una vez con URL fresca.
         if (requestId != _playRequestId) return;
@@ -541,6 +654,8 @@ class MusicAudioHandler extends BaseAudioHandler
         );
         if (requestId != _playRequestId) return;
         await _active.setAudioSource(retry);
+        await _active.setSpeed(_speed);
+        await _standby.setSpeed(_speed);
       }
       if (requestId != _playRequestId) return;
 
@@ -903,14 +1018,9 @@ class MusicAudioHandler extends BaseAudioHandler
     _preparedNextIndex = null;
   }
 
-  bool get _crossfadeEnabled =>
-      _settings.get('crossfadeEnabled', defaultValue: false) == true;
+  bool get _crossfadeEnabled => _crossfadeEnabledCache;
 
-  Duration get _crossfadeDuration {
-    final seconds = _settings.get('crossfadeSeconds', defaultValue: 3);
-    final value = seconds is int ? seconds : 3;
-    return Duration(seconds: value.clamp(1, 12));
-  }
+  Duration get _crossfadeDuration => _crossfadeDurationCache;
 
   // ---------------------------------------------------------------------------
   // Ticker: estadísticas, sesión y crossfade
@@ -1439,8 +1549,9 @@ class MusicAudioHandler extends BaseAudioHandler
   }) => playSongs(queue ?? [song], startIndex: index, shuffle: false);
 
   Future<void> dispose() async {
-    _ticker?.cancel();
+    _stopTicker();
     _fadeTimer?.cancel();
+    await _settingsSubscription?.cancel();
     await _interruptionSubscription?.cancel();
     await _noisySubscription?.cancel();
     await _devicesSubscription?.cancel();

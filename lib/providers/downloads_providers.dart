@@ -67,7 +67,7 @@ final statsServiceProvider = Provider<ListeningStatsService>(
   (ref) => throw UnimplementedError('ListeningStatsService no inicializado'),
 );
 
-final statsProvider = StreamProvider<StatsSnapshot>((ref) {
+final statsProvider = StreamProvider.autoDispose<StatsSnapshot>((ref) {
   final service = ref.watch(statsServiceProvider);
   return (() async* {
     yield service.snapshot();

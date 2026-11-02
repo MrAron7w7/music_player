@@ -147,7 +147,31 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
+  Future<bool> _confirmClearCache(BuildContext context, String title) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: const Text(
+          'Esta acción no se puede deshacer. ¿Deseas continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Borrar'),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
   Future<void> _clearSmartCache(BuildContext context, WidgetRef ref) async {
+    if (!await _confirmClearCache(context, 'Borrar toda la caché')) return;
     await ref.read(appCacheProvider).clear();
     await ref.read(audioCacheProvider).clear();
     await DefaultCacheManager().emptyCache();
@@ -162,6 +186,7 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _clearAudioCache(BuildContext context, WidgetRef ref) async {
+    if (!await _confirmClearCache(context, 'Borrar caché de audio')) return;
     await ref.read(audioCacheProvider).clear();
     ref.invalidate(cacheUsageProvider);
     if (!context.mounted) return;
@@ -171,6 +196,7 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _clearCovers(BuildContext context, WidgetRef ref) async {
+    if (!await _confirmClearCache(context, 'Borrar portadas en caché')) return;
     await DefaultCacheManager().emptyCache();
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
@@ -182,6 +208,7 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _clearMetadata(BuildContext context, WidgetRef ref) async {
+    if (!await _confirmClearCache(context, 'Borrar metadatos en caché')) return;
     await ref.read(appCacheProvider).clear();
     clearAlbumColorCache();
     ref.invalidate(cacheUsageProvider);
@@ -618,10 +645,10 @@ class SettingsScreen extends ConsumerWidget {
             _SettingsSection(
               title: 'COMPORTAMIENTO',
               children: [
-                const _SettingsTile(
+                _SettingsTile(
                   icon: Icons.lock_outline_rounded,
                   title: 'Controles en pantalla de bloqueo',
-                  subtitle: 'Activos durante la reproducción',
+                  subtitle: 'Siempre activada',
                 ),
                 _SettingsTile(
                   icon: Icons.headphones_rounded,

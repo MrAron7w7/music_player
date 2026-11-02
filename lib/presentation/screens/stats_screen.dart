@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../data/services/listening_stats_service.dart';
 import '../../providers/downloads_providers.dart';
@@ -159,15 +160,19 @@ class StatsScreen extends ConsumerWidget {
                         _SongStatTile(
                           rank: index + 1,
                           stat: snapshot.topSongs[index],
-                          onTap: () => ref
-                              .read(audioHandlerProvider)
-                              .playSongs(
-                                snapshot.topSongs
-                                    .map((stat) => stat.song)
-                                    .toList(),
-                                startIndex: index,
-                                shuffle: false,
-                              ),
+                          onTap: () async {
+                            await ref
+                                .read(audioHandlerProvider)
+                                .playSongs(
+                                  snapshot.topSongs
+                                      .map((stat) => stat.song)
+                                      .toList(),
+                                  startIndex: index,
+                                  shuffle: false,
+                                );
+                            if (!context.mounted) return;
+                            context.push('/now-playing');
+                          },
                         ),
                       ],
                     ],
@@ -209,15 +214,19 @@ class StatsScreen extends ConsumerWidget {
                         if (index > 0) const Divider(height: 1, indent: 68),
                         _RecentTile(
                           entry: snapshot.recent[index],
-                          onTap: () => ref
-                              .read(audioHandlerProvider)
-                              .playSongs(
-                                snapshot.recent
-                                    .map((entry) => entry.song)
-                                    .toList(),
-                                startIndex: index,
-                                shuffle: false,
-                              ),
+                          onTap: () async {
+                            await ref
+                                .read(audioHandlerProvider)
+                                .playSongs(
+                                  snapshot.recent
+                                      .map((entry) => entry.song)
+                                      .toList(),
+                                  startIndex: index,
+                                  shuffle: false,
+                                );
+                            if (!context.mounted) return;
+                            context.push('/now-playing');
+                          },
                         ),
                       ],
                     ],

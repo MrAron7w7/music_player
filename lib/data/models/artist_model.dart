@@ -1,3 +1,6 @@
+import 'album_model.dart';
+import 'song_model.dart';
+
 class ArtistModel {
   const ArtistModel({
     required this.id,
@@ -25,4 +28,19 @@ class ArtistModel {
     'subscribers': subscribers,
     'description': description,
   };
+}
+
+/// Página de artista: nombre, portada, canciones top y álbumes.
+class ArtistPageModel {
+  const ArtistPageModel({
+    required this.name,
+    required this.thumb,
+    this.cancionesTop = const <SongModel>[],
+    this.albumes = const <AlbumModel>[],
+  });
+
+  final String name;
+  final String? thumb;
+  final List<SongModel> cancionesTop;
+  final List<AlbumModel> albumes;
 }

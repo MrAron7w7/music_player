@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../providers/music_providers.dart';
 import '../../providers/player_providers.dart';
@@ -38,10 +39,17 @@ class AlbumDetailScreen extends ConsumerWidget {
           final downloadedCount = songs
               .where((song) => downloadedIds.contains(song.id))
               .length;
-          final progress = ref.watch(downloadProgressProvider).valueOrNull;
-          final downloading =
-              progress != null &&
-              songs.any((song) => progress.containsKey(song.id));
+          // Solo se reconstruye cuando cambia el progreso de las canciones de
+          // este álbum, no en cada tick de descarga (cada 100 ms).
+          final downloading = ref.watch(
+            downloadProgressProvider.select(
+              (progress) {
+                final map = progress.valueOrNull;
+                if (map == null) return false;
+                return songs.any((song) => map.containsKey(song.id));
+              },
+            ),
+          );
           return ListView(
             children: [
               Padding(
@@ -94,6 +102,30 @@ class AlbumDetailScreen extends ConsumerWidget {
                         ),
                         const SizedBox(width: 10),
                         IconButton.filledTonal(
+                          tooltip: 'Reproducir en aleatorio',
+                          onPressed: songs.isEmpty
+                              ? null
+                              : () async {
+                                  await ref
+                                      .read(audioHandlerProvider)
+                                      .playSongs(
+                                        songs,
+                                        startIndex: 0,
+                                        shuffle: true,
+                                      );
+                                  if (context.mounted) {
+                                    context.push('/now-playing');
+                                    unawaited(
+                                      requestPlaybackNotificationPermission(
+                                        context: context,
+                                      ),
+                                    );
+                                  }
+                                },
+                          icon: const Icon(Icons.shuffle_rounded),
+                        ),
+                        const SizedBox(width: 10),
+                        IconButton.filledTonal(
                           tooltip: 'Descargar álbum',
                           onPressed: songs.isEmpty || downloading
                               ? null
@@ -138,6 +170,7 @@ class AlbumDetailScreen extends ConsumerWidget {
                   entry.value,
                   playQueue: songs,
                   startIndex: entry.key,
+                  key: ValueKey(entry.value.id),
                 ),
               ),
             ],

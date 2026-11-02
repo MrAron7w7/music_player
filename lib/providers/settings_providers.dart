@@ -86,6 +86,36 @@ class CacheUsage {
   int get totalBytes => audioBytes + metadataBytes + coverBytes;
 }
 
+/// Velocidad de reproducción persistida (0.5x, 0.75x, 1x, 1.25x, 1.5x, 2x).
+final playbackSpeedProvider = StateProvider<double>((ref) {
+  final saved = ref
+      .watch(localRepositoryProvider)
+      .settings
+      .get(AppConstants.playbackSpeedKey);
+  return saved is num ? saved.toDouble().clamp(0.5, 2.0) : 1.0;
+});
+
+/// Orden de una colección (favorites | history | downloads).
+///
+/// Valores: 'default', 'title', 'artist', 'duration'. Se persiste en el
+/// settingsBox con una key por colección.
+final sortOrderProvider = StateProvider.family<String, String>((
+  ref,
+  collection,
+) {
+  final key = switch (collection) {
+    'favorites' => AppConstants.sortFavoritesKey,
+    'history' => AppConstants.sortHistoryKey,
+    'downloads' => AppConstants.sortDownloadsKey,
+    _ => AppConstants.sortFavoritesKey,
+  };
+  final saved = ref
+      .watch(localRepositoryProvider)
+      .settings
+      .get(key);
+  return saved is String ? saved : 'default';
+});
+
 final cacheUsageProvider = FutureProvider.autoDispose<CacheUsage>((ref) async {
   final audio = ref.watch(audioCacheProvider);
   final appCache = ref.watch(appCacheProvider);

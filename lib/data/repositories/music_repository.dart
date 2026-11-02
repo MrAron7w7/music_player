@@ -3,6 +3,7 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/song_model.dart';
 import '../services/audio_cache_service.dart';
 import '../services/yt_service.dart';
+import '../../core/utils/song_unavailable_exception.dart';
 
 enum AudioQuality { high, medium, low }
 
@@ -81,9 +82,38 @@ class MusicRepository {
           .getManifest(id, requireWatchPage: requireWatchPage)
           .timeout(const Duration(seconds: 11));
       return manifest.audioOnly.isEmpty ? null : manifest;
-    } catch (_) {
-      return null;
+    } on VideoRequiresPurchaseException catch (e) {
+      throw SongUnavailableException(
+        SongUnavailableReason.purchaseRequired,
+        e,
+      );
+    } on VideoUnavailableException catch (e) {
+      throw SongUnavailableException(
+        _classifyUnavailable(e.toString()),
+        e,
+      );
+    } on VideoUnplayableException catch (e) {
+      throw SongUnavailableException(
+        _classifyUnavailable(e.toString()),
+        e,
+      );
     }
+  }
+
+  /// Clasifica el motivo de un `VideoUnavailableException` a partir de su
+  /// mensaje. YouTube no expone un código de error estable, así que es una
+  /// aproximación basada en el texto del error.
+  static SongUnavailableReason _classifyUnavailable(String text) {
+    final lower = text.toLowerCase();
+    if (lower.contains('age') || lower.contains('edad')) {
+      return SongUnavailableReason.ageRestricted;
+    }
+    if (lower.contains('country') ||
+        lower.contains('region') ||
+        lower.contains('región')) {
+      return SongUnavailableReason.regionRestricted;
+    }
+    return SongUnavailableReason.unavailable;
   }
 
   Future<Uri?> _resolveAudioStreamUrl(
@@ -91,6 +121,7 @@ class MusicRepository {
     AudioQuality quality, {
     bool requireWatchPage = false,
   }) async {
+    SongUnavailableException? lastTransitory;
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
         // El cliente VisionOS no necesita la watch page para resolver el
@@ -117,12 +148,22 @@ class MusicRepository {
           AudioQuality.low => streams.length - 1,
         };
         return streams[index.clamp(0, streams.length - 1)].url;
-      } catch (_) {
-        if (attempt == 0) {
-          await Future<void>.delayed(const Duration(milliseconds: 450));
+      } on SongUnavailableException catch (e) {
+        // Las causas definitivas (edad, región, compra, eliminado) no se
+        // solucionan probando otra calidad: se propagan. Las transitorias
+        // (API/red) se acumulan para reintentar con la siguiente calidad.
+        if (e.reason == SongUnavailableReason.apiError ||
+            e.reason == SongUnavailableReason.streamError) {
+          lastTransitory = e;
+        } else {
+          rethrow;
         }
       }
+      if (attempt == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+      }
     }
+    if (lastTransitory != null) throw lastTransitory;
     return null;
   }
 

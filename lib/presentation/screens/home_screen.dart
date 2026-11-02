@@ -40,53 +40,61 @@ class HomeScreen extends ConsumerWidget {
     final offline = ref.watch(offlineModeProvider);
     final theme = Theme.of(context);
     return Scaffold(
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          SliverAppBar(
-            floating: true,
-            titleSpacing: 22,
-            title: Text(
-              'Simple Music',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-                letterSpacing: -.6,
-              ),
-            ),
-            actions: [
-              Padding(
-                padding: const EdgeInsets.only(right: 20),
-                child: CircleAvatar(
-                  radius: 19,
-                  backgroundColor: theme.colorScheme.primary.withValues(
-                    alpha: .12,
-                  ),
-                  child: Icon(
-                    DateTime.now().hour >= 19
-                        ? Icons.nightlight_round
-                        : Icons.headphones_rounded,
-                    color: theme.colorScheme.primary,
-                    size: 20,
-                  ),
+      body: RefreshIndicator.adaptive(
+        onRefresh: () async {
+          // Solo se recargan las secciones remotas: recomendaciones, álbumes
+          // recientes y spotlight vuelven a pedir datos y muestran su shimmer.
+          ref.invalidate(homeRecommendationsProvider);
+          ref.invalidate(homeRecentAlbumsProvider);
+          final artist = ref.read(currentArtistInfoProvider);
+          if (artist != null) {
+            ref.invalidate(artistSpotlightProvider(artist.id));
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 350));
+        },
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverAppBar(
+              floating: true,
+              titleSpacing: 22,
+              title: Text(
+                'Simple Music',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -.6,
                 ),
               ),
-            ],
-          ),
-          SliverList.list(
-            children: [
-              const _GreetingHeader(),
-              if (offline) const _OfflineBanner(),
-              const _ContinueListeningSection(),
-              const _ForYouSection(),
-              const _SpotlightSection(),
-              const _RecentAlbumsSection(),
-              const _PlaylistsSection(),
-              const _FavoritesSection(),
-              const _EmptyHomeSection(),
-              const SizedBox(height: 28),
-            ],
-          ),
-        ],
+              actions: [
+                IconButton(
+                  tooltip: 'Ajustes',
+                  onPressed: () =>
+                      ref.read(selectedTabProvider.notifier).state = 3,
+                  icon: Icon(
+                    Icons.settings_rounded,
+                    color: theme.colorScheme.primary,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ),
+            SliverList.list(
+              children: [
+                const _GreetingHeader(),
+                if (offline) const _OfflineBanner(),
+                const _ContinueListeningSection(),
+                const _ForYouSection(),
+                const _SpotlightSection(),
+                const _RecentAlbumsSection(),
+                const _PlaylistsSection(),
+                const _FavoritesSection(),
+                const _EmptyHomeSection(),
+                const SizedBox(height: 28),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -526,22 +534,28 @@ class _SongCard extends StatelessWidget {
                   radius: 18,
                 ),
                 Positioned(
-                  right: 10,
-                  bottom: 10,
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.black.withValues(alpha: .55),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: .35),
+                  right: 4,
+                  bottom: 4,
+                  child: SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: Center(
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.black.withValues(alpha: .55),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: .35),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.play_arrow_rounded,
+                          size: 22,
+                          color: Colors.white,
+                        ),
                       ),
-                    ),
-                    child: const Icon(
-                      Icons.play_arrow_rounded,
-                      size: 22,
-                      color: Colors.white,
                     ),
                   ),
                 ),

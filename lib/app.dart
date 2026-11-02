@@ -26,11 +26,24 @@ class MusicApp extends ConsumerWidget {
         themeAnimationDuration: const Duration(milliseconds: 300),
         themeAnimationCurve: Curves.easeInOutCubic,
         routerConfig: appRouter,
-        builder: (context, child) => HomeWidgetSync(
-          child: PermissionOnboarding(
-            child: UpdateCheckHost(child: child ?? const SizedBox.shrink()),
-          ),
-        ),
+        builder: (context, child) {
+          final media = MediaQuery.of(context);
+          // Evita que una escala de texto extrema rompa los layouts sin
+          // impedir que el usuario aumente el tamaño de letra.
+          return MediaQuery(
+            data: media.copyWith(
+              textScaler: media.textScaler.clamp(
+                minScaleFactor: 1,
+                maxScaleFactor: 1.4,
+              ),
+            ),
+            child: HomeWidgetSync(
+              child: PermissionOnboarding(
+                child: UpdateCheckHost(child: child ?? const SizedBox.shrink()),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

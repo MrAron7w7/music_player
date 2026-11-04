@@ -1,6 +1,7 @@
 {
-  "version": "2.0.8",
-  "build": 8,
-  "download_url": "https://github.com/MrAron7w7/music_player/releases/download/v2.0.8/app-release.apk",
+  "version": "2.1.0",
+  "build": 9,
+  "download_url": "https://github.com/MrAron7w7/music_player/releases/download/v2.1.0/app-release.apk",
   "notes": "Mejoras de rendimiento y estabilidad:\n\n- Arranque más rápido y búsqueda con paginación.\n- Buscador en descargas, playlist, favoritos e historial.\n- Páginas de artista, velocidad de reproducción y mejor orden de colecciones.\n- Corrección del error que impedía reproducir canciones."
 }
+ 

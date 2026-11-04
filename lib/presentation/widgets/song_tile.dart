@@ -320,9 +320,15 @@ class SongTile extends ConsumerWidget {
                             : 'Añadir a favoritos',
                         onPressed: () => _toggleFavorite(ref),
                         icon: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 180),
+                          duration: const Duration(milliseconds: 260),
                           transitionBuilder: (child, animation) =>
-                              ScaleTransition(scale: animation, child: child),
+                              ScaleTransition(
+                                scale: CurvedAnimation(
+                                  parent: animation,
+                                  curve: Curves.easeOutBack,
+                                ),
+                                child: child,
+                              ),
                           child: Icon(
                             isFavorite
                                 ? Icons.favorite_rounded
@@ -343,85 +349,6 @@ class SongTile extends ConsumerWidget {
                           style: Theme.of(context).textTheme.labelSmall,
                         ),
                       if (trailingExtra != null) trailingExtra!,
-                      PopupMenuButton<String>(
-                        onSelected: (value) {
-                          switch (value) {
-                            case 'favorite':
-                              _toggleFavorite(ref);
-                            case 'playlist':
-                              _addToPlaylist(context, ref);
-                            case 'play':
-                              _play(context, ref);
-                            case 'next':
-                              ref.read(audioHandlerProvider).playSongNext(song);
-                            case 'queue':
-                              ref
-                                  .read(audioHandlerProvider)
-                                  .addSongToQueue(song);
-                            case 'download':
-                              _download(context, ref);
-                            case 'cancel-download':
-                              unawaited(
-                                ref
-                                    .read(downloadServiceProvider)
-                                    .delete(song.id),
-                              );
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Descarga cancelada'),
-                                  ),
-                                );
-                              }
-                            case 'remove-download':
-                              unawaited(
-                                ref
-                                    .read(downloadServiceProvider)
-                                    .delete(song.id),
-                              );
-                          }
-                        },
-                        itemBuilder: (_) => [
-                          const PopupMenuItem(
-                            value: 'play',
-                            child: Text('Reproducir ahora'),
-                          ),
-                          const PopupMenuItem(
-                            value: 'next',
-                            child: Text('Reproducir siguiente'),
-                          ),
-                          const PopupMenuItem(
-                            value: 'queue',
-                            child: Text('Agregar al final de la cola'),
-                          ),
-                          const PopupMenuItem(
-                            value: 'playlist',
-                            child: Text('Añadir a playlist'),
-                          ),
-                          PopupMenuItem(
-                            value: 'favorite',
-                            child: Text(
-                              isFavorite
-                                  ? 'Quitar de favoritos'
-                                  : 'Añadir a favoritos',
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: downloading
-                                ? 'cancel-download'
-                                : downloaded
-                                ? 'remove-download'
-                                : 'download',
-                            child: Text(
-                              downloading
-                                  ? 'Cancelar descarga'
-                                  : downloaded
-                                  ? 'Eliminar descarga'
-                                  : 'Descargar',
-                            ),
-                          ),
-                        ],
-                      ),
                     ],
                   ),
             onTap: selectionMode

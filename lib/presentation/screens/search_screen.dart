@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../providers/music_providers.dart';
 import '../../providers/library_providers.dart';
 import '../../providers/navigation_providers.dart';
@@ -132,6 +133,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               retryLabel: 'Reintentar',
             )
           : ListView.builder(
+              padding: const EdgeInsets.only(
+                bottom: AppConstants.floatingNavInset,
+              ),
               itemCount: state.songs.length +
                   (state.hasMore && !state.loadingMore ? 1 : 0),
               // La cola se construye de forma inteligente a partir de la
@@ -158,7 +162,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 title: 'No encontramos álbumes',
               )
             : ListView.separated(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.fromLTRB(
+                  0,
+                  8,
+                  0,
+                  AppConstants.floatingNavInset,
+                ),
                 itemCount: items.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 4),
                 itemBuilder: (context, index) {
@@ -204,7 +213,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 title: 'No encontramos artistas',
               )
             : ListView.separated(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.fromLTRB(
+                  0,
+                  8,
+                  0,
+                  AppConstants.floatingNavInset,
+                ),
                 itemCount: items.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 4),
                 itemBuilder: (context, index) {
@@ -335,7 +349,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             Expanded(
               child: query.isEmpty && searchHistory.isNotEmpty
                   ? ListView(
-                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+                      padding: const EdgeInsets.fromLTRB(
+                        18,
+                        12,
+                        18,
+                        AppConstants.floatingNavInset,
+                      ),
                       children: [
                         Row(
                           children: [

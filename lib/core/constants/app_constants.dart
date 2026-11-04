@@ -16,7 +16,12 @@ class AppConstants {
   static const headsetAutoplayKey = 'headsetAutoplay';
   static const cacheLimitKey = 'audioCacheLimitBytes';
   static const playbackSpeedKey = 'playbackSpeed';
+  static const profilePhotoKey = 'profilePhotoPath';
   static const sortFavoritesKey = 'sort_favorites';
   static const sortHistoryKey = 'sort_history';
   static const sortDownloadsKey = 'sort_downloads';
+
+  /// Espacio inferior que deben dejar las pestañas para que el contenido no
+  /// quede oculto bajo la barra flotante y el mini reproductor.
+  static const double floatingNavInset = 178;
 }

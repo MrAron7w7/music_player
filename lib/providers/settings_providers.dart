@@ -95,6 +95,15 @@ final playbackSpeedProvider = StateProvider<double>((ref) {
   return saved is num ? saved.toDouble().clamp(0.5, 2.0) : 1.0;
 });
 
+/// Ruta local de la foto de perfil elegida en Ajustes. `null` si no hay foto.
+final profilePhotoProvider = StateProvider<String?>((ref) {
+  final saved = ref
+      .watch(localRepositoryProvider)
+      .settings
+      .get(AppConstants.profilePhotoKey);
+  return saved is String && saved.isNotEmpty ? saved : null;
+});
+
 /// Orden de una colección (favorites | history | downloads).
 ///
 /// Valores: 'default', 'title', 'artist', 'duration'. Se persiste en el

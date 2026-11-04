@@ -1,10 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/constants/app_config.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/notification_permissions.dart';
 import '../../data/repositories/music_repository.dart';
@@ -17,6 +22,7 @@ import '../../providers/navigation_providers.dart';
 import '../../providers/player_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/update_providers.dart';
+import '../widgets/profile_avatar.dart';
 import '../widgets/update_dialog.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -112,6 +118,73 @@ class SettingsScreen extends ConsumerWidget {
         .settings
         .put('audioQuality', selected.name);
     ref.read(musicRepositoryProvider).quality = selected;
+  }
+
+  Future<void> _pickProfilePhoto(BuildContext context, WidgetRef ref) async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        imageQuality: 90,
+      );
+      if (picked == null) return;
+
+      final support = await getApplicationSupportDirectory();
+      final dir = Directory(
+        '${support.path}${Platform.pathSeparator}profile',
+      );
+      await dir.create(recursive: true);
+      final destination = File(
+        '${dir.path}${Platform.pathSeparator}'
+        'avatar_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+      await File(picked.path).copy(destination.path);
+
+      final settings = ref.read(localRepositoryProvider).settings;
+      final previous = settings.get(AppConstants.profilePhotoKey);
+      await settings.put(AppConstants.profilePhotoKey, destination.path);
+      if (previous is String && previous.isNotEmpty) {
+        try {
+          final old = File(previous);
+          if (await old.exists()) await old.delete();
+        } catch (_) {}
+      }
+      ref.read(profilePhotoProvider.notifier).state = destination.path;
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Foto de perfil actualizada')),
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo cargar la imagen. Inténtalo de nuevo.'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _removeProfilePhoto(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final settings = ref.read(localRepositoryProvider).settings;
+    final previous = settings.get(AppConstants.profilePhotoKey);
+    await settings.delete(AppConstants.profilePhotoKey);
+    if (previous is String && previous.isNotEmpty) {
+      try {
+        final old = File(previous);
+        if (await old.exists()) await old.delete();
+      } catch (_) {}
+    }
+    ref.read(profilePhotoProvider.notifier).state = null;
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Foto de perfil eliminada')),
+      );
+    }
   }
 
   Future<void> _notificationPermission(
@@ -386,11 +459,17 @@ class SettingsScreen extends ConsumerWidget {
     final usage = ref.watch(selectedTabProvider) == 3
         ? ref.watch(cacheUsageProvider).valueOrNull
         : null;
+    final profilePhoto = ref.watch(profilePhotoProvider);
     return Scaffold(
       body: SafeArea(
         bottom: false,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+          padding: const EdgeInsets.fromLTRB(
+            18,
+            18,
+            18,
+            AppConstants.floatingNavInset,
+          ),
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 4, 4, 18),
@@ -399,6 +478,36 @@ class SettingsScreen extends ConsumerWidget {
                 style: Theme.of(context).textTheme.headlineMedium
                     ?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -.6),
               ),
+            ),
+            _SettingsSection(
+              title: 'PERFIL',
+              children: [
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
+                  leading: ProfileAvatar(
+                    size: 48,
+                    onTap: () => _pickProfilePhoto(context, ref),
+                  ),
+                  title: const Text('Foto de perfil'),
+                  subtitle: Text(
+                    profilePhoto == null
+                        ? 'Toca para elegir una imagen de tu galería'
+                        : 'Toca para cambiarla',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _pickProfilePhoto(context, ref),
+                ),
+                if (profilePhoto != null)
+                  _SettingsTile(
+                    icon: Icons.delete_outline_rounded,
+                    title: 'Quitar foto de perfil',
+                    subtitle: 'Volver al avatar predeterminado',
+                    onTap: () => _removeProfilePhoto(context, ref),
+                  ),
+              ],
             ),
             _SettingsSection(
               title: 'APARIENCIA',
@@ -645,11 +754,6 @@ class SettingsScreen extends ConsumerWidget {
             _SettingsSection(
               title: 'COMPORTAMIENTO',
               children: [
-                _SettingsTile(
-                  icon: Icons.lock_outline_rounded,
-                  title: 'Controles en pantalla de bloqueo',
-                  subtitle: 'Siempre activada',
-                ),
                 _SettingsTile(
                   icon: Icons.headphones_rounded,
                   title: 'Reproducir al conectar auriculares',

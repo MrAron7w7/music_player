@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -99,24 +100,43 @@ class MiniPlayer extends ConsumerWidget {
               key: ValueKey('empty-player'),
             )
           : Padding(
-              padding: const EdgeInsets.fromLTRB(10, 4, 10, 2),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOutCubic,
+              padding: const EdgeInsets.fromLTRB(0, 4, 0, 2),
+              child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: Color.lerp(
-                    theme.colorScheme.surfaceContainerHigh,
-                    accent,
-                    theme.brightness == Brightness.dark ? .12 : .07,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: accent.withValues(alpha: .22)),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                        alpha: theme.brightness == Brightness.dark ? .34 : .14,
+                      ),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
-                child: Material(
-                  color: Colors.transparent,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOutCubic,
+                      decoration: BoxDecoration(
+                        color: Color.lerp(
+                          theme.colorScheme.surfaceContainerHigh,
+                          accent,
+                          theme.brightness == Brightness.dark ? .12 : .07,
+                        )!.withValues(alpha: .9),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: accent.withValues(alpha: .22),
+                        ),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
                   clipBehavior: Clip.antiAlias,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -254,6 +274,9 @@ class MiniPlayer extends ConsumerWidget {
                 ),
               ),
             ),
+          ),
+        ),
+      ),
     );
   }
 }

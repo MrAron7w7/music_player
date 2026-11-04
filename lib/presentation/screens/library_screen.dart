@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/utils/extensions.dart';
 import '../../providers/downloads_providers.dart';
 import '../../providers/library_providers.dart';
@@ -191,6 +192,9 @@ class LibraryScreen extends ConsumerWidget {
                 ),
               ]),
             ),
+          ),
+          const SliverToBoxAdapter(
+            child: SizedBox(height: AppConstants.floatingNavInset),
           ),
         ],
       ),

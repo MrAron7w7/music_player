@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/utils/notification_permissions.dart';
 import '../../data/models/song_model.dart';
 import '../../providers/downloads_providers.dart';
@@ -15,7 +17,23 @@ import '../../providers/player_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../widgets/album_art.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/profile_avatar.dart';
 import '../widgets/song_tile.dart';
+
+/// Entrada suave de una sección de Home. La animación corre una sola vez al
+/// montar la sección; los cambios de datos posteriores no la reinician.
+Widget _reveal(Widget child, {int delay = 0}) => child
+    .animate(delay: Duration(milliseconds: delay))
+    .fadeIn(
+      duration: const Duration(milliseconds: 360),
+      curve: Curves.easeOutCubic,
+    )
+    .slideY(
+      begin: .05,
+      end: 0,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
 
 Future<void> _playSongs(
   BuildContext context,
@@ -38,7 +56,6 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final offline = ref.watch(offlineModeProvider);
-    final theme = Theme.of(context);
     return Scaffold(
       body: RefreshIndicator.adaptive(
         onRefresh: () async {
@@ -55,42 +72,18 @@ class HomeScreen extends ConsumerWidget {
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            SliverAppBar(
-              floating: true,
-              titleSpacing: 22,
-              title: Text(
-                'Simple Music',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -.6,
-                ),
-              ),
-              actions: [
-                IconButton(
-                  tooltip: 'Ajustes',
-                  onPressed: () =>
-                      ref.read(selectedTabProvider.notifier).state = 3,
-                  icon: Icon(
-                    Icons.settings_rounded,
-                    color: theme.colorScheme.primary,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ),
             SliverList.list(
               children: [
-                const _GreetingHeader(),
+                _reveal(const _GreetingHeader()),
                 if (offline) const _OfflineBanner(),
-                const _ContinueListeningSection(),
-                const _ForYouSection(),
-                const _SpotlightSection(),
-                const _RecentAlbumsSection(),
-                const _PlaylistsSection(),
-                const _FavoritesSection(),
+                _reveal(const _ContinueListeningSection(), delay: 40),
+                _reveal(const _ForYouSection(), delay: 80),
+                _reveal(const _SpotlightSection(), delay: 120),
+                _reveal(const _RecentAlbumsSection(), delay: 160),
+                _reveal(const _PlaylistsSection(), delay: 200),
+                _reveal(const _FavoritesSection(), delay: 240),
                 const _EmptyHomeSection(),
-                const SizedBox(height: 28),
+                const SizedBox(height: AppConstants.floatingNavInset),
               ],
             ),
           ],
@@ -119,24 +112,36 @@ class _GreetingHeader extends ConsumerWidget {
         : 'Relájate con lo que más te gusta.';
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(22, 8, 22, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(22, 14, 16, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            greeting,
-            style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              letterSpacing: -.9,
-              height: 1.1,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  greeting,
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -.9,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            subtitle,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+          const SizedBox(width: 12),
+          ProfileAvatar(
+            size: 46,
+            onTap: () => ref.read(selectedTabProvider.notifier).state = 3,
           ),
         ],
       ),
@@ -213,6 +218,9 @@ class _ContinueListeningSection extends ConsumerWidget {
         ? history.where((song) => downloadedIds.contains(song.id)).toList()
         : history;
     if (recent.isEmpty) return const SizedBox.shrink();
+    final currentId = ref.watch(
+      currentSongProvider.select((state) => state.valueOrNull?.id),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -222,6 +230,8 @@ class _ContinueListeningSection extends ConsumerWidget {
         ),
         _SongRow(
           songs: recent.take(10).toList(),
+          hero: true,
+          heroExceptId: currentId,
           onPlay: (songs, index) => _playSongs(context, ref, songs, index),
         ),
       ],
@@ -479,11 +489,15 @@ class _SongRow extends StatelessWidget {
     required this.songs,
     required this.onPlay,
     this.showBadge = false,
+    this.hero = false,
+    this.heroExceptId,
   });
 
   final List<SongModel> songs;
   final void Function(List<SongModel> songs, int index) onPlay;
   final bool showBadge;
+  final bool hero;
+  final String? heroExceptId;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -499,6 +513,7 @@ class _SongRow extends StatelessWidget {
             return _SongCard(
               song: song,
               badge: showBadge ? 'PARA TI' : null,
+              hero: hero && song.id != heroExceptId,
               onTap: () => onPlay(songs, index),
             );
           },
@@ -507,11 +522,17 @@ class _SongRow extends StatelessWidget {
 }
 
 class _SongCard extends StatelessWidget {
-  const _SongCard({required this.song, required this.onTap, this.badge});
+  const _SongCard({
+    required this.song,
+    required this.onTap,
+    this.badge,
+    this.hero = false,
+  });
 
   final SongModel song;
   final VoidCallback onTap;
   final String? badge;
+  final bool hero;
 
   @override
   Widget build(BuildContext context) {
@@ -527,12 +548,23 @@ class _SongCard extends StatelessWidget {
           children: [
             Stack(
               children: [
-                AlbumArt(
-                  url: song.artworkUrl,
-                  fallbackUrl: song.thumbnailUrl,
-                  size: artSize,
-                  radius: 18,
-                ),
+                if (hero)
+                  Hero(
+                    tag: 'art-${song.id}',
+                    child: AlbumArt(
+                      url: song.artworkUrl,
+                      fallbackUrl: song.thumbnailUrl,
+                      size: artSize,
+                      radius: 18,
+                    ),
+                  )
+                else
+                  AlbumArt(
+                    url: song.artworkUrl,
+                    fallbackUrl: song.thumbnailUrl,
+                    size: artSize,
+                    radius: 18,
+                  ),
                 Positioned(
                   right: 4,
                   bottom: 4,

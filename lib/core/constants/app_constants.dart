@@ -7,6 +7,7 @@ class AppConstants {
   static const cacheBox = 'cache';
   static const downloadsBox = 'downloads';
   static const statsBox = 'stats';
+  static const followedArtistsBox = 'followedArtists';
   static const maxHistory = 100;
   static const sessionKey = 'playbackSession';
   static const crossfadeEnabledKey = 'crossfadeEnabled';

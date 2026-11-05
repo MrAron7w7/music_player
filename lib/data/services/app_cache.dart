@@ -41,6 +41,47 @@ class AppCache {
 
   bool has(String key) => get<Object?>(key) != null;
 
+  /// Devuelve el valor aunque haya expirado. Se usa para mostrar datos
+  /// cacheados al instante y refrescar en segundo plano (stale-while-revalidate).
+  /// Las búsquedas normales siguen usando [get], que respeta el TTL.
+  T? getStale<T>(String key) {
+    try {
+      final raw = _box.get(key);
+      if (raw is! Map) return null;
+      final value = raw[_valueKey];
+      return value is T ? value : null;
+    } catch (error) {
+      debugPrint('Caché ilegible para $key: $error');
+      return null;
+    }
+  }
+
+  /// Claves guardadas con un prefijo concreto. Útil para índices locales
+  /// (por ejemplo, letras ya visitadas).
+  List<String> keysWithPrefix(String prefix) {
+    try {
+      return _box.keys
+          .whereType<String>()
+          .where((key) => key.startsWith('$prefix:'))
+          .toList();
+    } catch (error) {
+      debugPrint('No se pudieron leer claves de caché: $error');
+      return const [];
+    }
+  }
+
+  /// Momento en que se guardó la entrada, o `null` si no existe.
+  DateTime? createdAt(String key) {    try {
+      final raw = _box.get(key);
+      if (raw is! Map) return null;
+      final created = raw[_createdKey];
+      if (created is! int) return null;
+      return DateTime.fromMillisecondsSinceEpoch(created);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> put(
     String key,
     Object? value, {

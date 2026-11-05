@@ -9,12 +9,14 @@ class AlbumModel {
     this.thumbnailUrl,
     this.songCount,
     this.songs,
+    this.genre,
   });
   final String id, title;
   final List<String> artists;
   final int? year, songCount;
   final String? thumbnailUrl;
   final List<SongModel>? songs;
+  final String? genre;
   factory AlbumModel.fromJson(Map<String, dynamic> j) => AlbumModel(
     id: '${j['browseId'] ?? j['id'] ?? ''}',
     title: '${j['title'] ?? 'Álbum'}',
@@ -33,6 +35,7 @@ class AlbumModel {
         ?.whereType<Map>()
         .map((e) => SongModel.fromJson(Map<String, dynamic>.from(e)))
         .toList(),
+    genre: j['genre'] as String?,
   );
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -42,5 +45,6 @@ class AlbumModel {
     'thumbnailUrl': thumbnailUrl,
     'songCount': songCount,
     'songs': songs?.map((e) => e.toJson()).toList(),
+    'genre': genre,
   };
 }

@@ -6,8 +6,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/utils/notification_permissions.dart';
 import '../../data/models/album_model.dart';
+import '../../data/models/artist_model.dart';
+import '../../data/models/home_models.dart';
 import '../../data/models/song_model.dart';
+import '../../providers/downloads_providers.dart';
+import '../../providers/followed_artists_providers.dart';
+import '../../providers/library_providers.dart';
 import '../../providers/music_providers.dart';
+import '../../providers/network_providers.dart';
 import '../../providers/player_providers.dart';
 import '../widgets/album_art.dart';
 import '../widgets/empty_state.dart';
@@ -26,11 +32,9 @@ class ArtistScreen extends ConsumerWidget {
     bool shuffle = false,
     int startIndex = 0,
   }) async {
-    await ref.read(audioHandlerProvider).playSongs(
-      songs,
-      startIndex: startIndex,
-      shuffle: shuffle,
-    );
+    await ref
+        .read(audioHandlerProvider)
+        .playSongs(songs, startIndex: startIndex, shuffle: shuffle);
     if (!context.mounted) return;
     context.push('/now-playing');
     unawaited(requestPlaybackNotificationPermission(context: context));
@@ -42,15 +46,23 @@ class ArtistScreen extends ConsumerWidget {
     return Scaffold(
       body: artist.when(
         loading: () => const LoadingShimmer(),
-        error: (error, _) => Center(
-          child: EmptyState(
-            icon: Icons.error_outline_rounded,
-            title: 'No se pudo cargar el artista',
-            message: '$error',
-            onRetry: () => ref.invalidate(artistPageProvider(artistId)),
-            retryLabel: 'Reintentar',
-          ),
-        ),
+        error: (error, _) {
+          final local = ref.watch(effectiveOfflineProvider)
+              ? _localArtistPage(ref)
+              : null;
+          if (local != null) {
+            return _localFallback(context, ref, local);
+          }
+          return Center(
+            child: EmptyState(
+              icon: Icons.error_outline_rounded,
+              title: 'No se pudo cargar el artista',
+              message: '$error',
+              onRetry: () => ref.invalidate(artistPageProvider(artistId)),
+              retryLabel: 'Reintentar',
+            ),
+          );
+        },
         data: (value) {
           if (value.cancionesTop.isEmpty && value.albumes.isEmpty) {
             return const Center(
@@ -89,13 +101,14 @@ class ArtistScreen extends ConsumerWidget {
                     children: [
                       Text(
                         value.name,
-                        style: Theme.of(context)
-                            .textTheme
-                            .headlineMedium
+                        style: Theme.of(context).textTheme.headlineMedium
                             ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 12),
-                      Row(
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           FilledButton.icon(
                             onPressed: value.cancionesTop.isEmpty
@@ -104,19 +117,19 @@ class ArtistScreen extends ConsumerWidget {
                             icon: const Icon(Icons.play_arrow_rounded),
                             label: const Text('Reproducir'),
                           ),
-                          const SizedBox(width: 10),
                           IconButton.filledTonal(
                             onPressed: value.cancionesTop.isEmpty
                                 ? null
                                 : () => _play(
-                                      context,
-                                      ref,
-                                      value.cancionesTop,
-                                      shuffle: true,
-                                    ),
+                                    context,
+                                    ref,
+                                    value.cancionesTop,
+                                    shuffle: true,
+                                  ),
                             icon: const Icon(Icons.shuffle_rounded),
                             tooltip: 'Reproducir en aleatorio',
                           ),
+                          _followButton(context, ref, value),
                         ],
                       ),
                     ],
@@ -127,9 +140,7 @@ class ArtistScreen extends ConsumerWidget {
                 _cancionesTopSection(context, ref, value.cancionesTop),
               if (value.albumes.isNotEmpty)
                 _albumesSection(context, value.albumes),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: 28),
-              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 28)),
             ],
           );
         },
@@ -197,15 +208,17 @@ class ArtistScreen extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        AlbumArt(url: album.thumbnailUrl, size: 150, radius: 18),
+                        AlbumArt(
+                          url: album.thumbnailUrl,
+                          size: 150,
+                          radius: 18,
+                        ),
                         const SizedBox(height: 10),
                         Text(
                           album.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleSmall
+                          style: Theme.of(context).textTheme.titleSmall
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 2),
@@ -213,9 +226,7 @@ class ArtistScreen extends ConsumerWidget {
                           album.artists.join(', '),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
+                          style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
                                 color: Theme.of(context)
                                     .colorScheme
@@ -231,6 +242,124 @@ class ArtistScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _followButton(
+    BuildContext context,
+    WidgetRef ref,
+    ArtistPageModel value,
+  ) {
+    final following = ref.watch(isFollowingArtistProvider(artistId));
+    return OutlinedButton.icon(
+      onPressed: () async {
+        final nowFollowing = await ref
+            .read(followedArtistsProvider.notifier)
+            .toggle(
+              FollowedArtist(
+                id: artistId,
+                name: value.name,
+                thumbnailUrl: value.thumb,
+                followedAt: DateTime.now(),
+              ),
+            );
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              nowFollowing
+                  ? 'Ahora sigues a ${value.name}'
+                  : 'Has dejado de seguir a ${value.name}',
+            ),
+          ),
+        );
+      },
+      icon: Icon(
+        following ? Icons.check_rounded : Icons.person_add_alt_1_rounded,
+      ),
+      label: Text(following ? 'Siguiendo' : 'Seguir'),
+    );
+  }
+
+  ArtistPageModel? _localArtistPage(WidgetRef ref) {
+    final pool = <SongModel>[
+      ...ref.watch(downloadedSongsProvider),
+      ...ref.watch(favoritesProvider),
+      ...ref.watch(historyProvider),
+    ];
+    final seen = <String>{};
+    final songs = <SongModel>[];
+    for (final song in pool) {
+      if (song.id.isEmpty || !seen.add(song.id)) continue;
+      if (!(song.artistIds ?? const <String>[]).contains(artistId)) continue;
+      songs.add(song);
+    }
+    if (songs.isEmpty) return null;
+    songs.sort((a, b) => a.title.compareTo(b.title));
+    final albumsById = <String, AlbumModel>{};
+    for (final song in songs) {
+      final albumId = song.albumId;
+      if (albumId == null || albumId.isEmpty) continue;
+      albumsById.putIfAbsent(
+        albumId,
+        () => AlbumModel(
+          id: albumId,
+          title: song.album?.trim().isNotEmpty == true ? song.album! : 'Álbum',
+          artists: song.artists,
+          thumbnailUrl: song.artworkUrl,
+          songs: [song],
+        ),
+      );
+    }
+    return ArtistPageModel(
+      name: songs.first.artists.firstOrNull ?? 'Artista',
+      thumb: songs.first.artworkUrl,
+      cancionesTop: songs.take(25).toList(),
+      albumes: albumsById.values.toList(),
+    );
+  }
+
+  Widget _localFallback(
+    BuildContext context,
+    WidgetRef ref,
+    ArtistPageModel value,
+  ) {
+    return CustomScrollView(
+      slivers: [
+        SliverAppBar(pinned: true, title: Text(value.name)),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 14, 22, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value.name,
+                  style: Theme.of(context).textTheme.headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(Icons.cloud_off_rounded, size: 16),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text(
+                        'Sin conexión: mostrando canciones de tu biblioteca.',
+                      ),
+                    ),
+                    _followButton(context, ref, value),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (value.cancionesTop.isNotEmpty)
+          _cancionesTopSection(context, ref, value.cancionesTop),
+        if (value.albumes.isNotEmpty) _albumesSection(context, value.albumes),
+        const SliverToBoxAdapter(child: SizedBox(height: 40)),
+      ],
     );
   }
 }

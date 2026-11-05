@@ -22,6 +22,10 @@ import '../widgets/lyrics_sheet.dart';
 import '../widgets/player_controls.dart';
 import '../widgets/player_seek_bar.dart';
 
+/// Filtro local para la cola de reproducción. Se reinicia cada vez que se abre
+/// el panel para no ocultar canciones de forma inesperada.
+final queueSearchQueryProvider = StateProvider<String>((ref) => '');
+
 /// Reproductor a pantalla completa inspirado en Apple Music: portada grande,
 /// fondo con blur y tinte de la portada, controles claros y gestos.
 class NowPlayingScreen extends ConsumerStatefulWidget {
@@ -168,6 +172,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
 
   Future<void> _showQueue() async {
     final handler = ref.read(audioHandlerProvider);
+    ref.read(queueSearchQueryProvider.notifier).state = '';
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -181,6 +186,20 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
         builder: (context, controller) => Consumer(
           builder: (context, ref, _) {
             final songs = ref.watch(queueSongsProvider);
+            final queueQuery = ref
+                .watch(queueSearchQueryProvider)
+                .trim()
+                .toLowerCase();
+            final filtered = <({int index, SongModel song})>[
+              for (var index = 0; index < songs.length; index++)
+                if (queueQuery.isEmpty ||
+                    songs[index].title.toLowerCase().contains(queueQuery) ||
+                    songs[index].artists
+                        .join(' ')
+                        .toLowerCase()
+                        .contains(queueQuery))
+                  (index: index, song: songs[index]),
+            ];
             final currentIndex =
                 ref.watch(queueIndexProvider) ?? handler.currentIndex;
             final colors = Theme.of(context).colorScheme;
@@ -297,9 +316,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                   ),
                             ),
                             Text(
-                              songs.length == 1
-                                  ? '1 canción'
-                                  : '${songs.length} canciones',
+                              queueQuery.isEmpty
+                                  ? songs.length == 1
+                                        ? '1 canción'
+                                        : '${songs.length} canciones'
+                                  : '${filtered.length} de ${songs.length} canciones',
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(color: colors.onSurfaceVariant),
                             ),
@@ -320,26 +341,50 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                   ),
                 ),
                 const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  child: TextField(
+                    onChanged: (value) =>
+                        ref.read(queueSearchQueryProvider.notifier).state =
+                            value,
+                    textInputAction: TextInputAction.search,
+                    decoration: const InputDecoration(
+                      hintText: 'Buscar en la cola',
+                      prefixIcon: Icon(Icons.search_rounded, size: 20),
+                      isDense: true,
+                    ),
+                  ),
+                ),
                 Expanded(
-                  child: songs.isEmpty
-                      ? const EmptyState(
-                          icon: Icons.queue_music_rounded,
-                          title: 'La cola está vacía',
-                          message: 'Añade canciones con “Reproducir siguiente” o “Agregar al final”.',
+                  child: filtered.isEmpty
+                      ? EmptyState(
+                          icon: queueQuery.isEmpty
+                              ? Icons.queue_music_rounded
+                              : Icons.search_off_rounded,
+                          title: queueQuery.isEmpty
+                              ? 'La cola está vacía'
+                              : 'Sin coincidencias',
+                          message: queueQuery.isEmpty
+                              ? 'Añade canciones con “Reproducir siguiente” o “Agregar al final”.'
+                              : 'Ninguna canción de la cola coincide con la búsqueda.',
                         )
                       : ReorderableListView.builder(
                           scrollController: controller,
                           buildDefaultDragHandles: false,
                           padding: const EdgeInsets.only(top: 6, bottom: 20),
-                          itemCount: songs.length,
+                          itemCount: filtered.length,
                           // ignore: deprecated_member_use
-                          onReorder: (oldIndex, newIndex) =>
-                              handler.moveSongInQueue(oldIndex, newIndex),
+                          onReorder: (oldIndex, newIndex) {
+                            if (queueQuery.isNotEmpty) return;
+                            handler.moveSongInQueue(oldIndex, newIndex);
+                          },
                           itemBuilder: (context, index) {
-                            final song = songs[index];
-                            final active = currentIndex == index;
+                            final entry = filtered[index];
+                            final song = entry.song;
+                            final originalIndex = entry.index;
+                            final active = currentIndex == originalIndex;
                             return ListTile(
-                              key: ValueKey('${song.id}-$index'),
+                              key: ValueKey('${song.id}-$originalIndex'),
                               contentPadding: const EdgeInsets.only(
                                 left: 16,
                                 right: 4,
@@ -388,9 +433,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                     tooltip: 'Opciones',
                                     onSelected: (value) {
                                       if (value == 'play') {
-                                        handler.skipToQueueItem(index);
+                                        handler.skipToQueueItem(originalIndex);
                                       } else if (value == 'remove') {
-                                        handler.removeSongFromQueue(index);
+                                        handler.removeSongFromQueue(
+                                          originalIndex,
+                                        );
                                       }
                                     },
                                     itemBuilder: (_) => const [
@@ -404,24 +451,25 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                       ),
                                     ],
                                   ),
-                                  ReorderableDragStartListener(
-                                    index: index,
-                                    child: const Padding(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 14,
-                                      ),
-                                      child: Icon(
-                                        Icons.drag_handle_rounded,
-                                        size: 22,
+                                  if (queueQuery.isEmpty)
+                                    ReorderableDragStartListener(
+                                      index: index,
+                                      child: const Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 14,
+                                        ),
+                                        child: Icon(
+                                          Icons.drag_handle_rounded,
+                                          size: 22,
+                                        ),
                                       ),
                                     ),
-                                  ),
                                 ],
                               ),
                               onTap: () {
                                 HapticFeedback.selectionClick();
-                                handler.skipToQueueItem(index);
+                                handler.skipToQueueItem(originalIndex);
                               },
                             );
                           },
@@ -728,7 +776,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
       if (estimatedBytes > 0) formatBytes(estimatedBytes),
     ].join(' • ');
     final speed = ref.watch(playbackSpeedProvider);
-    final speedText = '${speed.toStringAsFixed(speed == speed.roundToDouble() ? 0 : 1)}x';
+    final speedText =
+        '${speed.toStringAsFixed(speed == speed.roundToDouble() ? 0 : 1)}x';
     final isError = processingState == AudioProcessingState.error;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(

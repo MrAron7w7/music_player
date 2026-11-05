@@ -11,6 +11,7 @@ import '../../providers/downloads_providers.dart';
 import '../../providers/library_providers.dart';
 import '../../providers/music_providers.dart';
 import '../../providers/player_providers.dart';
+import '../../providers/search_providers.dart';
 import '../widgets/album_art.dart';
 import '../widgets/song_tile.dart';
 
@@ -319,11 +320,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     final searchQuery = _searchQuery.trim();
     final displaySongs = searchQuery.isEmpty
         ? playlist.songs
-        : playlist.songs.where((song) {
-            final q = searchQuery.toLowerCase();
-            return song.title.toLowerCase().contains(q) ||
-                song.artists.join(' ').toLowerCase().contains(q);
-          }).toList();
+        : ref
+              .watch(localSearchServiceProvider)
+              .searchInSongs(playlist.songs, searchQuery);
 
     return Scaffold(
       appBar: AppBar(

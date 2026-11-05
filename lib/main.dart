@@ -20,6 +20,7 @@ import 'data/services/download_service.dart';
 import 'data/services/listening_stats_service.dart';
 import 'data/services/yt_service.dart';
 import 'data/repositories/local_repository.dart';
+import 'data/repositories/followed_artists_repository.dart';
 import 'data/repositories/music_repository.dart';
 import 'data/services/audio_handler.dart';
 import 'providers/cache_providers.dart';
@@ -27,10 +28,12 @@ import 'providers/downloads_providers.dart';
 import 'providers/music_providers.dart';
 import 'providers/player_providers.dart';
 import 'providers/library_providers.dart';
+import 'providers/followed_artists_providers.dart';
 
 late final YtService ytService;
 late final MusicRepository musicRepository;
 late final LocalRepository localRepository;
+late final FollowedArtistsRepository followedArtistsRepository;
 late final DownloadService downloadService;
 late final ListeningStatsService statsService;
 late final MusicAudioHandler audioHandler;
@@ -50,10 +53,12 @@ Future<void> main() async {
     Hive.openBox(AppConstants.settingsBox),
     Hive.openBox(AppConstants.downloadsBox),
     Hive.openBox(AppConstants.statsBox),
+    Hive.openBox(AppConstants.followedArtistsBox),
   ]);
   final cacheBox = await Hive.openBox(AppConstants.cacheBox);
   appCache = AppCache(cacheBox);
   localRepository = LocalRepository(boxes[0], boxes[1], boxes[2], boxes[3]);
+  followedArtistsRepository = FollowedArtistsRepository(boxes[6]);
   final temporaryDirectory = await getTemporaryDirectory();
   audioCache = AudioCacheService(
     Directory(
@@ -158,6 +163,9 @@ Future<void> main() async {
         ytServiceProvider.overrideWithValue(ytService),
         musicRepositoryProvider.overrideWithValue(musicRepository),
         localRepositoryProvider.overrideWithValue(localRepository),
+        followedArtistsRepositoryProvider.overrideWithValue(
+          followedArtistsRepository,
+        ),
         audioHandlerProvider.overrideWithValue(audioHandler),
         appCacheProvider.overrideWithValue(appCache),
         audioCacheProvider.overrideWithValue(audioCache),

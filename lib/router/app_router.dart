@@ -4,12 +4,18 @@ import 'package:go_router/go_router.dart';
 import '../presentation/navigation/main_scaffold.dart';
 import '../presentation/screens/album_detail_screen.dart';
 import '../presentation/screens/artist_screen.dart';
+import '../presentation/screens/charts_screen.dart';
 import '../presentation/screens/downloads_screen.dart';
+import '../presentation/screens/genre_screen.dart';
 import '../presentation/screens/library_collection_screen.dart';
+import '../presentation/screens/mix_detail_screen.dart';
 import '../presentation/screens/now_playing_screen.dart';
 import '../presentation/screens/playlist_detail_screen.dart';
 import '../presentation/screens/playlists_screen.dart';
+import '../presentation/screens/public_playlist_screen.dart';
+import '../presentation/screens/see_all_screen.dart';
 import '../presentation/screens/stats_screen.dart';
+import '../data/models/home_models.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -118,6 +124,47 @@ final appRouter = GoRouter(
         state,
         ArtistScreen(artistId: state.pathParameters['id']!),
       ),
+    ),
+    GoRoute(
+      path: '/public-playlist/:id',
+      pageBuilder: (context, state) => _slideUp(
+        context,
+        state,
+        PublicPlaylistScreen(playlistId: state.pathParameters['id']!),
+      ),
+    ),
+    GoRoute(
+      path: '/genre/:params',
+      pageBuilder: (context, state) => _slideUp(
+        context,
+        state,
+        GenreScreen(
+          params: Uri.decodeComponent(state.pathParameters['params']!),
+          title: state.extra is String ? state.extra! as String : 'Género',
+        ),
+      ),
+    ),
+    GoRoute(
+      path: '/charts',
+      pageBuilder: (context, state) =>
+          _slideUp(context, state, const ChartsScreen()),
+    ),
+    GoRoute(
+      path: '/mix/:id',
+      pageBuilder: (context, state) => _slideUp(
+        context,
+        state,
+        MixDetailScreen(mixId: state.pathParameters['id']!),
+      ),
+    ),
+    GoRoute(
+      path: '/see-all/:section',
+      pageBuilder: (context, state) {
+        final section =
+            SeeAllSectionX.parse(state.pathParameters['section']) ??
+            SeeAllSection.forYou;
+        return _fadeThrough(context, state, SeeAllScreen(section: section));
+      },
     ),
   ],
 );

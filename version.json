@@ -1,7 +1,7 @@
 {
-  "version": "2.1.0",
-  "build": 9,
+  "version": "2.1.5",
+  "build": 10,
   "download_url": "https://github.com/MrAron7w7/music_player/releases/download/v2.1.0/app-release.apk",
-  "notes": "Mejoras de rendimiento y estabilidad:\n\n- Arranque más rápido y búsqueda con paginación.\n- Buscador en descargas, playlist, favoritos e historial.\n- Páginas de artista, velocidad de reproducción y mejor orden de colecciones.\n- Corrección del error que impedía reproducir canciones."
+  "notes": "Buscador e Inicio renovados:\n\n- Buscador con ámbitos: catálogo, mi biblioteca y letras; resultados mixtos, pestañas y paginación automática.\n- Filtros por descargas, duración, año, género, calidad y orden; corrección ortográfica, sugerencias, historial con deshacer y selección múltiple.\n- Búsqueda local en descargas, favoritos, historial y playlists; búsqueda dentro de letras indexadas y de la cola de reproducción.\n- Búsqueda por voz con texto en tiempo real, solicitud de permiso de micrófono y fallback a la búsqueda escrita.\n- Estados vacíos contextuales con accesos a biblioteca, descargas, favoritos y opciones para quitar filtros o desactivar el modo offline.\n- Playlists públicas, páginas de género, charts y detalle de mezclas; seguir artistas y fallback offline en artistas y álbumes.\n- Inicio con secciones independientes: seguir escuchando, Daily Mix, novedades, tendencias, géneros, porque escuchaste, hecho para ti, redescubre, top artistas, artistas seguidos, álbumes recientes, playlists, favoritos y mezclas por estado de ánimo.\n- Mejoras de rendimiento, caché diaria de mezclas y manejo de errores aislado por sección."
 }
  

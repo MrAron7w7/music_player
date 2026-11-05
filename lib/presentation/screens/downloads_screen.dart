@@ -13,6 +13,7 @@ import '../../data/models/song_model.dart';
 import '../../providers/downloads_providers.dart';
 import '../../providers/library_providers.dart';
 import '../../providers/player_providers.dart';
+import '../../providers/search_providers.dart';
 import '../widgets/album_art.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/song_tile.dart';
@@ -34,8 +35,11 @@ List<SongModel> _sortDownloadsSongs(List<SongModel> sortedSongs, String order) {
         return aa.compareTo(bb);
       });
     case 'duration':
-      result.sort((a, b) =>
-          (a.duration ?? Duration.zero).compareTo(b.duration ?? Duration.zero));
+      result.sort(
+        (a, b) => (a.duration ?? Duration.zero).compareTo(
+          b.duration ?? Duration.zero,
+        ),
+      );
     case 'default':
     default:
       break;
@@ -44,12 +48,12 @@ List<SongModel> _sortDownloadsSongs(List<SongModel> sortedSongs, String order) {
 }
 
 String _sortDownloadsLabel(String order) => switch (order) {
-      'default' => 'Por defecto (recientes)',
-      'title' => 'Título A-Z',
-      'artist' => 'Artista',
-      'duration' => 'Duración',
-      _ => 'Por defecto (recientes)',
-    };
+  'default' => 'Por defecto (recientes)',
+  'title' => 'Título A-Z',
+  'artist' => 'Artista',
+  'duration' => 'Duración',
+  _ => 'Por defecto (recientes)',
+};
 
 /// Consulta de búsqueda para filtrar las descargas por título o artista.
 final downloadsSearchQueryProvider = StateProvider<String>((ref) => '');
@@ -80,10 +84,10 @@ void _showSortDownloadsSheet(BuildContext context, WidgetRef ref) {
     ),
   ).then((selected) {
     if (selected == null) return;
-    ref.read(localRepositoryProvider).settings.put(
-          AppConstants.sortDownloadsKey,
-          selected,
-        );
+    ref
+        .read(localRepositoryProvider)
+        .settings
+        .put(AppConstants.sortDownloadsKey, selected);
     ref.read(sortOrderProvider('downloads').notifier).state = selected;
   });
 }
@@ -140,11 +144,9 @@ class DownloadsScreen extends ConsumerWidget {
     final searchQuery = ref.watch(downloadsSearchQueryProvider).trim();
     final rawSongs = searchQuery.isEmpty
         ? allSongs
-        : allSongs.where((song) {
-            final q = searchQuery.toLowerCase();
-            return song.title.toLowerCase().contains(q) ||
-                song.artists.join(' ').toLowerCase().contains(q);
-          }).toList();
+        : ref
+              .watch(localSearchServiceProvider)
+              .searchInSongs(allSongs, searchQuery);
     final sortOrder = ref.watch(sortOrderProvider('downloads'));
     final sortedSongs = _sortDownloadsSongs(rawSongs, sortOrder);
     final currentSong = ref.watch(currentSongProvider).valueOrNull;
@@ -320,7 +322,9 @@ class DownloadsScreen extends ConsumerWidget {
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
                     child: TextField(
                       onChanged: (value) =>
-                          ref.read(downloadsSearchQueryProvider.notifier).state =
+                          ref
+                                  .read(downloadsSearchQueryProvider.notifier)
+                                  .state =
                               value,
                       decoration: InputDecoration(
                         hintText: 'Buscar descargas',
@@ -334,9 +338,12 @@ class DownloadsScreen extends ConsumerWidget {
                                 icon: const Icon(Icons.close_rounded, size: 20),
                                 onPressed: () =>
                                     ref
-                                        .read(downloadsSearchQueryProvider
-                                            .notifier)
-                                        .state = '',
+                                            .read(
+                                              downloadsSearchQueryProvider
+                                                  .notifier,
+                                            )
+                                            .state =
+                                        '',
                               )
                             : null,
                         filled: true,
@@ -392,7 +399,11 @@ class DownloadsScreen extends ConsumerWidget {
                   itemCount: sortedSongs.length,
                   itemBuilder: (context, index) {
                     final song = sortedSongs[index];
-                    return SongTile(song, playQueue: sortedSongs, startIndex: index);
+                    return SongTile(
+                      song,
+                      playQueue: sortedSongs,
+                      startIndex: index,
+                    );
                   },
                 ),
                 const SliverToBoxAdapter(child: SizedBox(height: 30)),

@@ -7,6 +7,8 @@ import 'package:ytmusicapi_dart/models/lyrics.dart';
 
 import '../models/album_model.dart';
 import '../models/artist_model.dart';
+import '../models/public_playlist_model.dart';
+import '../models/search_models.dart';
 import '../models/song_model.dart';
 import 'app_cache.dart';
 
@@ -97,12 +99,14 @@ class YtService {
     String q,
     SearchFilterType type, {
     int limit = 20,
+    bool ignoreSpelling = false,
   }) async => _cached(
-    'search:${type.name}:${_queryKey(q)}:$limit',
+    'search:${type.name}:${_queryKey(q)}:$limit:${ignoreSpelling ? 1 : 0}',
     () async => (await api.search(
       q,
       filter: type,
       limit: limit,
+      ignoreSpelling: ignoreSpelling,
     )).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
     ttl: const Duration(minutes: 10),
     persistTtl: const Duration(hours: 6),
@@ -114,40 +118,334 @@ class YtService {
         .toList(),
   );
 
-  Future<List<SongModel>> searchSongs(String query, {int limit = 20}) =>
-      _cached(
-        'search:songs:${_queryKey(query)}:$limit',
-        () async =>
-            (await api.search(
-                  query,
-                  filter: SearchFilterType.songs,
-                  limit: limit,
-                ))
-                .whereType<Map>()
-                .map((e) => SongModel.fromJson(Map<String, dynamic>.from(e)))
-                .where((s) => s.id.isNotEmpty)
+  Future<List<SongModel>> searchSongs(
+    String query, {
+    int limit = 20,
+    bool ignoreSpelling = false,
+  }) => _cached(
+    'search:songs:${_queryKey(query)}:$limit:${ignoreSpelling ? 1 : 0}',
+    () async =>
+        (await api.search(
+              query,
+              filter: SearchFilterType.songs,
+              limit: limit,
+              ignoreSpelling: ignoreSpelling,
+            ))
+            .whereType<Map>()
+            .map((e) => SongModel.fromJson(Map<String, dynamic>.from(e)))
+            .where((s) => s.id.isNotEmpty)
+            .toList(),
+    ttl: const Duration(minutes: 10),
+    persistTtl: const Duration(hours: 6),
+    persistMaxEntries: 120,
+    encode: (songs) => songs.map((song) => song.toJson()).toList(),
+    decode: (data) => (data as List)
+        .whereType<Map>()
+        .map((song) => SongModel.fromJson(Map<String, dynamic>.from(song)))
+        .where((song) => song.id.isNotEmpty)
+        .toList(),
+  );
+
+  Future<List<Map<String, dynamic>>> _searchAllRaw(
+    String query, {
+    int limit = 20,
+    bool ignoreSpelling = false,
+  }) => _cached(
+    'search:all:${_queryKey(query)}:$limit:${ignoreSpelling ? 1 : 0}',
+    () async => (await api.search(
+      query,
+      limit: limit,
+      ignoreSpelling: ignoreSpelling,
+    )).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList(),
+    ttl: const Duration(minutes: 10),
+    persistTtl: const Duration(hours: 6),
+    persistMaxEntries: 120,
+    encode: (value) => value,
+    decode: (data) => (data as List)
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(),
+  );
+
+  /// Búsqueda mixta para la pestaña “Todo”. Agrupa por `resultType` y conserva
+  /// el mejor resultado que destaca YouTube Music.
+  Future<SearchAllResult> searchAll(
+    String query, {
+    int limit = 20,
+    bool ignoreSpelling = false,
+  }) async {
+    final raw = await _searchAllRaw(
+      query,
+      limit: limit,
+      ignoreSpelling: ignoreSpelling,
+    );
+    final songs = <SongModel>[];
+    final albums = <AlbumModel>[];
+    final artists = <ArtistModel>[];
+    final playlists = <PublicPlaylistModel>[];
+    final songIds = <String>{};
+    final albumIds = <String>{};
+    final artistIds = <String>{};
+    final playlistIds = <String>{};
+    SearchHit? topHit;
+
+    for (final map in raw) {
+      final resultType = '${map['resultType'] ?? ''}';
+      final isTop = '${map['category'] ?? ''}'.toLowerCase() == 'top result';
+      switch (resultType) {
+        case 'song':
+        case 'video':
+          final song = SongModel.fromJson(map);
+          if (song.id.isEmpty || !songIds.add(song.id)) continue;
+          songs.add(song);
+          if (isTop) topHit ??= SearchHit.song(song);
+        case 'album':
+          final album = AlbumModel.fromJson(map);
+          if (album.id.isEmpty || !albumIds.add(album.id)) continue;
+          albums.add(album);
+          if (isTop) topHit ??= SearchHit.album(album);
+        case 'artist':
+          final artist = ArtistModel.fromJson(map);
+          if (artist.id.isEmpty || !artistIds.add(artist.id)) continue;
+          artists.add(artist);
+          if (isTop) topHit ??= SearchHit.artist(artist);
+        case 'playlist':
+          final playlist = PublicPlaylistModel.fromJson(map);
+          if (playlist.id.isEmpty || !playlistIds.add(playlist.id)) continue;
+          playlists.add(playlist);
+          if (isTop) topHit ??= SearchHit.playlist(playlist);
+        default:
+          // profile, podcast y episode no forman parte de los resultados.
+          break;
+      }
+    }
+
+    topHit ??= songs.isNotEmpty
+        ? SearchHit.song(songs.first)
+        : albums.isNotEmpty
+        ? SearchHit.album(albums.first)
+        : artists.isNotEmpty
+        ? SearchHit.artist(artists.first)
+        : playlists.isNotEmpty
+        ? SearchHit.playlist(playlists.first)
+        : null;
+
+    return SearchAllResult(
+      songs: songs,
+      albums: albums,
+      artists: artists,
+      playlists: playlists,
+      best: topHit,
+    );
+  }
+
+  Future<List<AlbumModel>> searchAlbums(
+    String q, {
+    int limit = 40,
+    bool ignoreSpelling = false,
+  }) async => (await _search(
+    q,
+    SearchFilterType.albums,
+    limit: limit,
+    ignoreSpelling: ignoreSpelling,
+  )).map(AlbumModel.fromJson).where((album) => album.id.isNotEmpty).toList();
+
+  Future<List<ArtistModel>> searchArtists(
+    String q, {
+    int limit = 40,
+    bool ignoreSpelling = false,
+  }) async => (await _search(
+    q,
+    SearchFilterType.artists,
+    limit: limit,
+    ignoreSpelling: ignoreSpelling,
+  ))
+      .map(ArtistModel.fromJson)
+      .where((artist) => artist.id.isNotEmpty)
+      .toList();
+
+  Future<List<PublicPlaylistModel>> searchPlaylists(
+    String q, {
+    int limit = 20,
+    bool ignoreSpelling = false,
+  }) async => (await _search(
+    q,
+    SearchFilterType.playlists,
+    limit: limit,
+    ignoreSpelling: ignoreSpelling,
+  ))
+      .map(PublicPlaylistModel.fromJson)
+      .where((playlist) => playlist.id.isNotEmpty)
+      .toList();
+
+  /// Detalle completo de una playlist pública. Filtra entradas que no son
+  /// reproducibles (episodios, podcasts y álbumes encadenados).
+  Future<PublicPlaylistPage> getPublicPlaylist(
+    String id, {
+    int limit = 100,
+  }) => _cached(
+    'publicPlaylist:$id:$limit',
+    () async {
+      final raw = Map<String, dynamic>.from(
+        await api.getPlaylist(id, limit: limit),
+      );
+      final tracks = (raw['tracks'] as List? ?? raw['songs'] as List? ?? const [])
+          .whereType<Map>()
+          .map((entry) => Map<String, dynamic>.from(entry))
+          .toList();
+      final songs = <SongModel>[];
+      final seen = <String>{};
+      for (final track in tracks) {
+        final song = SongModel.fromJson(track);
+        if (song.id.isEmpty || !seen.add(song.id)) continue;
+        if (song.id.startsWith('MPRE') ||
+            song.id.startsWith('MPLA') ||
+            song.id.startsWith('MPED') ||
+            song.id.startsWith('UC')) {
+          continue;
+        }
+        songs.add(song);
+      }
+      final header = PublicPlaylistModel.fromJson({
+        ...raw,
+        'browseId': raw['browseId'] ?? id,
+      });
+      final playlist = header.copyWith(
+        itemCount: header.itemCount ?? songs.length,
+        thumbnailUrl:
+            header.thumbnailUrl ?? songs.firstOrNull?.thumbnailUrl,
+      );
+      return PublicPlaylistPage(playlist: playlist, songs: songs);
+    },
+    ttl: const Duration(minutes: 30),
+    persistTtl: const Duration(hours: 6),
+    persistMaxEntries: 80,
+    timeout: const Duration(seconds: 20),
+    encode: (page) => page.toJson(),
+    decode: (data) =>
+        PublicPlaylistPage.fromJson(Map<String, dynamic>.from(data as Map)),
+  );
+
+  /// Sugerencias de autocompletado normalizadas.
+  Future<List<SearchSuggestion>> getSearchSuggestions(
+    String query, {
+    bool detailedRuns = true,
+  }) => _cached(
+    'search:suggestions:${_queryKey(query)}',
+    () async {
+      final raw = await api.getSearchSuggestions(
+        query,
+        detailedRuns: detailedRuns,
+      );
+      final list = raw is List ? raw : const [];
+      return list.whereType<Map>().map((entry) {
+        final map = Map<String, dynamic>.from(entry);
+        final runs = (map['runs'] as List? ?? const [])
+            .whereType<Map>()
+            .map(
+              (run) => SuggestionRun(
+                '${run['text'] ?? ''}',
+                bold: run['bold'] == true,
+              ),
+            )
+            .where((run) => run.text.isNotEmpty)
+            .toList();
+        return SearchSuggestion(
+          text: '${map['text'] ?? ''}',
+          runs: runs,
+          fromHistory: map['fromHistory'] == true,
+          feedbackToken: map['feedbackToken'] as String?,
+        );
+      }).where((suggestion) => suggestion.text.isNotEmpty).toList();
+    },
+    ttl: const Duration(minutes: 15),
+    persistTtl: const Duration(days: 1),
+    persistMaxEntries: 100,
+    timeout: const Duration(seconds: 8),
+    cacheIf: (suggestions) => suggestions.isNotEmpty,
+    encode: (suggestions) => suggestions
+        .map(
+          (suggestion) => {
+            'text': suggestion.text,
+            'runs': suggestion.runs
+                .map((run) => {'text': run.text, 'bold': run.bold})
                 .toList(),
-        ttl: const Duration(minutes: 10),
-        persistTtl: const Duration(hours: 6),
-        persistMaxEntries: 120,
-        encode: (songs) => songs.map((song) => song.toJson()).toList(),
+            'fromHistory': suggestion.fromHistory,
+            'feedbackToken': suggestion.feedbackToken,
+          },
+        )
+        .toList(),
+    decode: (data) => (data as List)
+        .whereType<Map>()
+        .map((entry) {
+          final map = Map<String, dynamic>.from(entry);
+          return SearchSuggestion(
+            text: '${map['text'] ?? ''}',
+            runs: (map['runs'] as List? ?? const [])
+                .whereType<Map>()
+                .map(
+                  (run) => SuggestionRun(
+                    '${run['text'] ?? ''}',
+                    bold: run['bold'] == true,
+                  ),
+                )
+                .toList(),
+            fromHistory: map['fromHistory'] == true,
+            feedbackToken: map['feedbackToken'] as String?,
+          );
+        })
+        .where((suggestion) => suggestion.text.isNotEmpty)
+        .toList(),
+  );
+
+  Future<Map<String, dynamic>> getExploreRaw() => _cached(
+    'explore:v1',
+    () async => Map<String, dynamic>.from(await api.getExplore()),
+    ttl: const Duration(hours: 12),
+    persistTtl: const Duration(hours: 24),
+    persistMaxEntries: 4,
+    encode: (value) => value,
+    decode: (data) => Map<String, dynamic>.from(data as Map),
+  );
+
+  Future<Map<String, dynamic>> getMoodCategoriesRaw() => _cached(
+    'explore:moods:v1',
+    () async => Map<String, dynamic>.from(await api.getMoodCategories()),
+    ttl: const Duration(days: 7),
+    persistTtl: const Duration(days: 7),
+    persistMaxEntries: 2,
+    encode: (value) => value,
+    decode: (data) => Map<String, dynamic>.from(data as Map),
+  );
+
+  Future<List<Map<String, dynamic>>> getMoodPlaylistsRaw(String params) =>
+      _cached(
+        'explore:genre:${params.hashCode}',
+        () async => (await api.getMoodPlaylists(params))
+            .whereType<Map>()
+            .map((entry) => Map<String, dynamic>.from(entry))
+            .toList(),
+        ttl: const Duration(hours: 24),
+        persistTtl: const Duration(hours: 24),
+        persistMaxEntries: 40,
+        encode: (value) => value,
         decode: (data) => (data as List)
             .whereType<Map>()
-            .map((song) => SongModel.fromJson(Map<String, dynamic>.from(song)))
-            .where((song) => song.id.isNotEmpty)
+            .map((entry) => Map<String, dynamic>.from(entry))
             .toList(),
       );
 
-  Future<List<AlbumModel>> searchAlbums(String q) async => (await _search(
-    q,
-    SearchFilterType.albums,
-    limit: 40,
-  )).map(AlbumModel.fromJson).toList();
-  Future<List<ArtistModel>> searchArtists(String q) async => (await _search(
-    q,
-    SearchFilterType.artists,
-    limit: 40,
-  )).map(ArtistModel.fromJson).toList();
+  Future<Map<String, dynamic>> getChartsRaw(String country) => _cached(
+    'charts:v1:$country',
+    () async => Map<String, dynamic>.from(
+      await api.getCharts(country: country),
+    ),
+    ttl: const Duration(hours: 12),
+    persistTtl: const Duration(hours: 24),
+    persistMaxEntries: 20,
+    encode: (value) => value,
+    decode: (data) => Map<String, dynamic>.from(data as Map),
+  );
 
   Future<SongModel?> getSongDetails(String id) => _cached(
     'song:$id',

@@ -122,7 +122,10 @@ final appRouter = GoRouter(
       pageBuilder: (context, state) => _slideUp(
         context,
         state,
-        ArtistScreen(artistId: state.pathParameters['id']!),
+        ArtistScreen(
+          artistId: state.pathParameters['id']!,
+          fromSearch: state.uri.queryParameters['fromSearch'] == '1',
+        ),
       ),
     ),
     GoRoute(

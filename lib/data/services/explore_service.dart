@@ -70,9 +70,12 @@ class ExploreService {
     return result;
   }
 
-  Future<List<PublicPlaylistModel>> getGenrePlaylists(String params) async {
+  Future<List<PublicPlaylistModel>> getGenrePlaylists(
+    String params, {
+    String? title,
+  }) async {
     if (params.trim().isEmpty) return const [];
-    final raw = await yt.getMoodPlaylistsRaw(params);
+    final raw = await yt.getMoodPlaylistsRaw(params, title: title);
     final seen = <String>{};
     final result = <PublicPlaylistModel>[];
     for (final entry in raw) {
@@ -115,7 +118,9 @@ class ExploreService {
     artists.sort((a, b) => (a.rank ?? 999).compareTo(b.rank ?? 999));
 
     final countries = raw['countries'];
-    final selected = countries is Map ? countries['selected']?.toString() : null;
+    final selected = countries is Map
+        ? countries['selected']?.toString()
+        : null;
     final options = countries is Map && countries['options'] is List
         ? (countries['options'] as List).whereType<String>().toList()
         : const <String>[];

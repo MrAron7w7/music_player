@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/utils/genre_artwork.dart';
 import '../../data/models/album_model.dart';
 import '../../data/models/explore_models.dart';
 import '../../data/models/home_models.dart';
@@ -47,7 +48,8 @@ class SeeAllScreen extends ConsumerWidget {
               ? const EmptyState(
                   icon: Icons.auto_awesome_rounded,
                   title: 'Aún no hay suficientes datos',
-                  message: 'Escucha algunas canciones para generar tus mezclas.',
+                  message:
+                      'Escucha algunas canciones para generar tus mezclas.',
                 )
               : ListView.separated(
                   padding: const EdgeInsets.all(16),
@@ -87,21 +89,6 @@ class SeeAllScreen extends ConsumerWidget {
                   header: result.isOffline ? 'Modo offline' : null,
                   emptyTitle: 'Sin canciones',
                 ),
-        );
-      case SeeAllSection.newReleases:
-        final async = ref.watch(exploreBundleProvider);
-        return async.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => EmptyState(
-            icon: Icons.new_releases_rounded,
-            title: 'No se pudieron cargar las novedades',
-            message: '$error',
-            onRetry: () => ref.invalidate(exploreBundleProvider),
-          ),
-          data: (bundle) => _AlbumGrid(
-            albums: bundle.newReleases,
-            emptyTitle: 'Sin novedades por ahora',
-          ),
         );
       case SeeAllSection.trending:
         final async = ref.watch(exploreBundleProvider);
@@ -177,7 +164,11 @@ class SeeAllScreen extends ConsumerWidget {
                 itemBuilder: (context, index) {
                   final album = albums[index];
                   return ListTile(
-                    leading: AlbumArt(url: album.coverUrl, size: 52, radius: 10),
+                    leading: AlbumArt(
+                      url: album.coverUrl,
+                      size: 52,
+                      radius: 10,
+                    ),
                     title: Text(album.title, maxLines: 1),
                     subtitle: Text(album.artist, maxLines: 1),
                     trailing: const Icon(Icons.chevron_right_rounded),
@@ -207,24 +198,37 @@ class SeeAllScreen extends ConsumerWidget {
         );
       case SeeAllSection.moodMixes:
         final moods = ref.watch(moodMixesProvider);
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: moods.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
-          itemBuilder: (context, index) {
-            final mood = moods[index];
-            return ListTile(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-              tileColor: Theme.of(
-                context,
-              ).colorScheme.surfaceContainerHighest.withValues(alpha: .4),
-              leading: const Icon(Icons.auto_awesome_rounded),
-              title: Text(mood.title),
-              subtitle: Text(mood.subtitle),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => _openMood(context, ref, mood),
+        if (moods.isEmpty) {
+          return const EmptyState(
+            icon: Icons.auto_awesome_rounded,
+            title: 'Sin mezclas por ahora',
+          );
+        }
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = (constraints.maxWidth / 170).floor().clamp(2, 4);
+            final cardWidth =
+                (constraints.maxWidth - 32 - (columns - 1) * 10) / columns;
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+              children: [
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final mood in moods)
+                      HomeMoodCard(
+                        title: mood.title,
+                        subtitle: mood.subtitle,
+                        width: cardWidth,
+                        colors: genreArtworkFor(mood.title).colors,
+                        icon: genreArtworkFor(mood.title).icon,
+                        imageUrl: genreArtworkFor(mood.title).imageUrl,
+                        onTap: () => _openMood(context, ref, mood),
+                      ),
+                  ],
+                ),
+              ],
             );
           },
         );
@@ -233,7 +237,10 @@ class SeeAllScreen extends ConsumerWidget {
 
   void _openMood(BuildContext context, WidgetRef ref, MoodMix mood) {
     if (mood.isMapped) {
-      context.push('/genre/${mood.genreParams}', extra: mood.title);
+      context.push(
+        '/genre/${Uri.encodeComponent(mood.genreParams!)}',
+        extra: mood.title,
+      );
       return;
     }
     ref.read(searchQueryProvider.notifier).state = mood.fallbackQuery ?? '';
@@ -243,11 +250,7 @@ class SeeAllScreen extends ConsumerWidget {
 }
 
 class _SongList extends StatelessWidget {
-  const _SongList({
-    required this.songs,
-    required this.emptyTitle,
-    this.header,
-  });
+  const _SongList({required this.songs, required this.emptyTitle, this.header});
 
   final List<SongModel> songs;
   final String emptyTitle;
@@ -359,17 +362,12 @@ class _MixRow extends ConsumerWidget {
     contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
     leading: MixArtwork(urls: mix.coverUrls, size: 68, radius: 12),
     title: Text(mix.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-    subtitle: Text(
-      mix.subtitle,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-    ),
+    subtitle: Text(mix.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
     trailing: IconButton(
       tooltip: 'Reproducir',
       icon: const Icon(Icons.play_circle_fill_rounded),
-      onPressed: () => ref
-          .read(audioHandlerProvider)
-          .playSongs(mix.songs, shuffle: false),
+      onPressed: () =>
+          ref.read(audioHandlerProvider).playSongs(mix.songs, shuffle: false),
     ),
     onTap: () => context.push('/mix/${mix.id}'),
   );
@@ -394,11 +392,7 @@ class _TopArtistList extends StatelessWidget {
       itemBuilder: (context, index) {
         final artist = artists[index];
         return ListTile(
-          leading: AlbumArt(
-            url: artist.imageUrl,
-            size: 52,
-            radius: 26,
-          ),
+          leading: AlbumArt(url: artist.imageUrl, size: 52, radius: 26),
           title: Text(artist.name, maxLines: 1),
           subtitle: Text(artist.subtitle),
           trailing: index < 3
@@ -441,26 +435,40 @@ class _GenreList extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
             child: Text(
               entry.key,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final genre in entry.value)
-                  ActionChip(
-                    label: Text(genre.title),
-                    onPressed: () => context.push(
-                      '/genre/${Uri.encodeComponent(genre.params)}',
-                      extra: genre.title,
-                    ),
-                  ),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = (constraints.maxWidth / 170).floor().clamp(
+                  2,
+                  4,
+                );
+                final cardWidth =
+                    (constraints.maxWidth - (columns - 1) * 10) / columns;
+                return Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final genre in entry.value)
+                      HomeMoodCard(
+                        title: genre.title,
+                        subtitle: genre.group,
+                        width: cardWidth,
+                        colors: genreArtworkFor(genre.title).colors,
+                        icon: genreArtworkFor(genre.title).icon,
+                        imageUrl: genreArtworkFor(genre.title).imageUrl,
+                        onTap: () => context.push(
+                          '/genre/${Uri.encodeComponent(genre.params)}',
+                          extra: genre.title,
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -507,9 +515,8 @@ class _ChartLists extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
             child: Text(
               'Artistas en tendencia',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
         for (final artist in charts.artists)
@@ -533,11 +540,7 @@ class _PlaylistRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListTile(
-    leading: AlbumArt(
-      url: playlist.coverUrl,
-      size: 52,
-      radius: 10,
-    ),
+    leading: AlbumArt(url: playlist.coverUrl, size: 52, radius: 10),
     title: Text(playlist.name, maxLines: 1),
     subtitle: Text('${playlist.songs.length} canciones'),
     trailing: const Icon(Icons.chevron_right_rounded),

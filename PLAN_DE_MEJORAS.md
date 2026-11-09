@@ -3638,6 +3638,105 @@ flutter run --release
 - [ ] No se reintroducen restricciones por edad.
 - [ ] No hay nuevas excepciones no capturadas en los flujos principales.
 
+## 11. Correcciones de Inicio, Buscador y artistas
+
+### 11.1 Objetivo
+
+Cerrar los problemas detectados en la experiencia diaria de Inicio, el Buscador y las páginas de artista, manteniendo intactos la reproducción, la cola, las descargas, los favoritos, el historial, las playlists, las letras, las estadísticas, las rutas y el lenguaje visual existente.
+
+### 11.2 Limpieza de Inicio
+
+- Eliminar la sección **Tus favoritos** de Inicio.
+- Eliminar la sección **Álbumes recientes** de Inicio.
+- Eliminar la sección **Playlists** de Inicio.
+- Eliminar la sección **Novedades** de Inicio.
+- Eliminar también el acceso “Ver todo” de Novedades y el provider que ya no alimenta ninguna pantalla.
+- Mantener las demás secciones de Inicio: seguir escuchando, Daily Mix, tendencias, géneros, porque escuchaste, hecho para ti, redescubre, artistas, seguidos, spotlight y mezclas por estado de ánimo.
+- Actualizar el estado vacío de Inicio para que hable solo del historial, ya que los favoritos dejaron de mostrarse allí.
+
+### 11.3 Portadas de géneros y mezclas
+
+- Sustituir las tarjetas de color plano de géneros por tarjetas con una fotografía representativa.
+- Sustituir las tarjetas de colores de **Mezclas para tu momento** por tarjetas con imagen.
+- Añadir un mapa centralizado de portadas para géneros y estados de ánimo: pop, rock, hip hop, R&B, jazz, clásica, latina, africana, country, metal, indie, K-pop, anime, fiesta, chill, sueño, enfoque, gimnasio, gaming, romance, tristeza, viaje, bienestar y podcasts, entre otros.
+- Usar una portada musical neutra cuando el título no coincida con ninguna categoría conocida, para que nunca quede un hueco sin imagen.
+- Mantener el degradado, el icono y el velo oscuro sobre la fotografía para conservar la legibilidad del texto.
+- Aplicar el mismo diseño en Inicio y en las pantallas de “Ver todos” de géneros y mezclas.
+
+### 11.4 Detalle de género
+
+- Corregir el fallo `type 'Null' is not a subtype of type 'Map<String, dynamic>' in type cast` al abrir el género **African**.
+- Sustituir el parser rígido de Moods & Genres por una lectura segura que:
+  - recorra solo los carruseles compatibles;
+  - omita secciones de canciones (`musicResponsiveListItemRenderer`);
+  - lea las tarjetas de playlist (`musicTwoRowItemRenderer`);
+  - ignore cualquier entrada null o con un formato inesperado.
+- Si la respuesta no contiene playlists utilizables, usar el título del género como respaldo y buscar playlists por texto.
+- Mantener la caché de resultados para que las siguientes visitas sean instantáneas.
+- Mostrar mensajes de error y vacío claros, en español, con botón **Reintentar**, en lugar de exponer excepciones técnicas.
+
+### 11.5 Buscador de artistas
+
+- No mostrar artistas que no tengan canciones ni álbumes.
+- Validar el contenido del artista en segundo plano mediante su página de YouTube Music.
+- Ocultar de la sesión los artistas confirmados como vacíos para que no vuelvan a aparecer al repetir la búsqueda.
+- Si el artista se abre desde el Buscador antes de terminar la validación:
+  - abrir su página con la marca `fromSearch=1`;
+  - comprobar si tiene contenido;
+  - cerrar automáticamente la página y mostrar un aviso si no tiene canciones ni álbumes;
+  - añadir el artista a la lista de ocultos.
+- Aplicar el filtro tanto a la pestaña **Artistas** como a las tarjetas de artistas de **Todo**.
+- No ocultar artistas ante un fallo de red; en ese caso se conserva el resultado y se permite reintentar.
+- Mantener disponibles los accesos para seguir o dejar de seguir artistas.
+
+### 11.6 Página de artista
+
+- Mostrar la imagen principal del artista en el encabezado de la página.
+- Añadir un degradado sobre la imagen para mantener legibles los controles y la información.
+- Mostrar todas las canciones disponibles del artista, no solo los éxitos principales.
+- Obtener el catálogo completo desde la playlist “Todas las canciones” del artista (`songs.browseId`) con un límite alto.
+- Si el catálogo completo no está disponible, usar como respaldo las canciones principales.
+- Mantener el orden de reproducción y permitir reproducir o mezclar la lista completa.
+- Corregir `AlbumArt` para aceptar tamaños no finitos (`double.infinity`), usados por el encabezado tipo hero, sin lanzar excepciones ni provocar imágenes de tamaño inválido.
+- Mantener el fallback offline local para artistas, álbumes y canciones ya descargadas.
+
+### 11.7 Mini-reproductor y navegación
+
+- Sincronizar el mini-reproductor con la barra de navegación inferior.
+- Cuando la barra se oculta al hacer scroll, desplazar el mini-reproductor hacia abajo el mismo alto que ocupa la barra.
+- Cuando la barra vuelve a aparecer, devolver el mini-reproductor a su posición original.
+- Animar el desplazamiento para que no haya saltos y mantener la interacción del mini-reproductor mientras está visible.
+
+### 11.8 Compatibilidad y no regresión
+
+- No cambiar las rutas existentes ni los nombres de los providers públicos.
+- Conservar la reproducción, la cola, las descargas, los favoritos, el historial, las playlists, las letras y las estadísticas.
+- Mantener el modo offline y la configuración de calidad de audio.
+- Mantener el tema claro/oscuro y el lenguaje visual de la aplicación.
+- No introducir nuevas restricciones por edad ni excepciones sin capturar en los flujos principales.
+
+### 11.9 Criterios de aceptación
+
+- [ ] Inicio ya no muestra favoritos, álbumes recientes, playlists ni novedades.
+- [ ] Las tarjetas de géneros y mezclas muestran imágenes representativas.
+- [ ] El género African abre correctamente y muestra playlists o un estado vacío con reintento.
+- [ ] El Buscador no ofrece artistas sin canciones ni álbumes.
+- [ ] Un artista vacío abierto desde el Buscador se cierra y se oculta automáticamente.
+- [ ] La página de artista muestra su imagen principal y todas sus canciones.
+- [ ] El mini-reproductor acompaña el movimiento de la barra de navegación.
+- [ ] `flutter analyze --no-pub` termina sin errores.
+- [ ] `flutter test --no-pub` termina correctamente.
+- [ ] La compilación `flutter build apk --release --no-pub` finaliza correctamente.
+- [ ] No quedan scripts temporales de inspección en el repositorio.
+
+### 11.10 Verificación realizada
+
+- Se comprobó en tiempo de ejecución que el género **African** devuelve playlists sin lanzar la excepción de tipo.
+- Se comprobó que la página de un artista con catálogo amplio devuelve más canciones que los éxitos principales y conserva su imagen.
+- Se validó `flutter analyze --no-pub` sin incidencias.
+- Se validó la suite de pruebas existente.
+- Se generó el APK de release para confirmar que los cambios compilan en el artefacto final.
+
 <!-- CONTINUAR: PARTE 10 -->
 
 

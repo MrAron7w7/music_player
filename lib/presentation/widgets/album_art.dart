@@ -16,11 +16,13 @@ class AlbumArt extends StatelessWidget {
   final String? fallbackUrl;
   final double size, radius;
 
+  double get _resolvedSize => size.isFinite && size > 0 ? size : 512;
+
   Widget _networkArt(BuildContext context) {
     final source = url;
     if (source == null) return _fallback(context);
 
-    final decodeSize = (size * MediaQuery.devicePixelRatioOf(context))
+    final decodeSize = (_resolvedSize * MediaQuery.devicePixelRatioOf(context))
         .round()
         .clamp(64, 768)
         .toInt();
@@ -55,7 +57,7 @@ class AlbumArt extends StatelessWidget {
 
   Widget _fallback(BuildContext context) => Icon(
     Icons.music_note_rounded,
-    size: size * .48,
+    size: (_resolvedSize * .48).clamp(20, 120).toDouble(),
     color: Theme.of(context).colorScheme.primary,
   );
 

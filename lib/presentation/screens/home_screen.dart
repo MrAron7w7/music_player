@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/utils/genre_artwork.dart';
 import '../../core/utils/notification_permissions.dart';
 import '../../data/models/album_model.dart';
 import '../../data/models/song_model.dart';
@@ -26,7 +27,6 @@ import '../widgets/album_art.dart';
 import '../widgets/home_cards.dart';
 import '../widgets/profile_avatar.dart';
 import '../widgets/section_header.dart';
-import '../widgets/song_tile.dart';
 
 /// Entrada suave de una sección de Home. La animación corre una sola vez al
 /// montar la sección; los cambios de datos posteriores no la reinician.
@@ -89,7 +89,6 @@ class HomeScreen extends ConsumerWidget {
                 _reveal(const _RecentChips(), delay: 20),
                 _reveal(const _ContinueListeningSection(), delay: 40),
                 _reveal(const _DailyMixesSection(), delay: 60),
-                if (!offline) _reveal(const _NewReleasesSection(), delay: 80),
                 if (!offline) _reveal(const _TrendingSection(), delay: 100),
                 if (!offline) _reveal(const _GenresSection(), delay: 120),
                 _reveal(const _BecauseYouListenedSection(), delay: 140),
@@ -99,10 +98,7 @@ class HomeScreen extends ConsumerWidget {
                 if (!offline)
                   _reveal(const _FollowedReleasesSection(), delay: 220),
                 if (!offline) _reveal(const _SpotlightSection(), delay: 240),
-                if (!offline) _reveal(const _RecentAlbumsSection(), delay: 260),
-                _reveal(const _PlaylistsSection(), delay: 280),
-                _reveal(const _FavoritesSection(), delay: 300),
-                if (!offline) _reveal(const _MoodMixesSection(), delay: 320),
+                if (!offline) _reveal(const _MoodMixesSection(), delay: 260),
                 const _EmptyHomeSection(),
                 const SizedBox(height: AppConstants.floatingNavInset),
               ],
@@ -370,71 +366,6 @@ class _DailyMixesSection extends ConsumerWidget {
   }
 }
 
-class _NewReleasesSection extends ConsumerWidget {
-  const _NewReleasesSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(exploreBundleProvider);
-    final albums = async.valueOrNull?.newReleases ?? const <AlbumModel>[];
-    if (async.isLoading && albums.isEmpty) {
-      return const _CardsSkeleton(
-        title: 'Novedades',
-        subtitle: 'Cargando lanzamientos…',
-      );
-    }
-    if (albums.isEmpty) {
-      if (async.hasError) {
-        return Column(
-          children: [
-            const SectionHeader(
-              'Novedades',
-              subtitle: 'Lanzamientos recientes',
-              padding: EdgeInsets.fromLTRB(22, 28, 22, 12),
-            ),
-            HomeListError(
-              message: 'No se pudieron cargar las novedades.',
-              onRetry: () => ref.invalidate(exploreBundleProvider),
-            ),
-          ],
-        );
-      }
-      return const SizedBox.shrink();
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(
-          'Novedades',
-          subtitle: 'Lanzamientos recientes para ti',
-          action: 'Ver todo',
-          onTap: () => context.push('/see-all/newReleases'),
-          padding: const EdgeInsets.fromLTRB(22, 28, 14, 12),
-        ),
-        SizedBox(
-          height: 208,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 22),
-            itemCount: albums.take(12).length,
-            separatorBuilder: (_, _) => const SizedBox(width: 16),
-            itemBuilder: (context, index) {
-              final album = albums[index];
-              return HomeAlbumCard(
-                title: album.title,
-                subtitle: album.artists.join(', '),
-                imageUrl: album.thumbnailUrl,
-                onTap: () => context.push('/album/${album.id}'),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _TrendingSection extends ConsumerWidget {
   const _TrendingSection();
 
@@ -480,14 +411,6 @@ class _GenresSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final genres = ref.watch(genresProvider);
     if (genres.isEmpty) return const SizedBox.shrink();
-    const colors = [
-      [Color(0xFF5B4B8A), Color(0xFF9B7EDE)],
-      [Color(0xFF1F6F78), Color(0xFF4FB3BF)],
-      [Color(0xFF8A3B4B), Color(0xFFE07A8A)],
-      [Color(0xFF6B4F1D), Color(0xFFD9A441)],
-      [Color(0xFF1E4D6B), Color(0xFF5A9BC4)],
-      [Color(0xFF4A3B6B), Color(0xFF9B87C4)],
-    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -499,7 +422,7 @@ class _GenresSection extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(22, 28, 14, 12),
         ),
         SizedBox(
-          height: 82,
+          height: 100,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
@@ -508,11 +431,13 @@ class _GenresSection extends ConsumerWidget {
             separatorBuilder: (_, _) => const SizedBox(width: 10),
             itemBuilder: (context, index) {
               final genre = genres[index];
+              final artwork = genreArtworkFor(genre.title);
               return HomeMoodCard(
                 title: genre.title,
                 subtitle: genre.group,
-                icon: Icons.category_rounded,
-                colors: colors[index % colors.length],
+                icon: artwork.icon,
+                colors: artwork.colors,
+                imageUrl: artwork.imageUrl,
                 onTap: () => context.push(
                   '/genre/${Uri.encodeComponent(genre.params)}',
                   extra: genre.title,
@@ -771,129 +696,6 @@ class _SpotlightSection extends ConsumerWidget {
   }
 }
 
-/// Álbumes recientes del historial.
-class _RecentAlbumsSection extends ConsumerWidget {
-  const _RecentAlbumsSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final albums = ref.watch(homeRecentAlbumsProvider);
-    if (albums.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(
-          'Álbumes recientes',
-          subtitle: 'Vuelve a escuchar los discos que te gustan',
-          action: 'Ver todo',
-          onTap: () => context.push('/see-all/recentAlbums'),
-          padding: const EdgeInsets.fromLTRB(22, 28, 14, 12),
-        ),
-        SizedBox(
-          height: 208,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 22),
-            itemCount: albums.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 16),
-            itemBuilder: (context, index) {
-              final album = albums[index];
-              return _MediaCard(
-                title: album.title,
-                subtitle: album.artist,
-                imageUrl: album.coverUrl,
-                onTap: () => context.push('/album/${album.id}'),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PlaylistsSection extends ConsumerWidget {
-  const _PlaylistsSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final playlists = ref.watch(playlistsProvider);
-    if (playlists.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(
-          'Tus playlists',
-          subtitle: 'Colecciones hechas a tu manera',
-          action: 'Ver todas',
-          onTap: () => context.push('/see-all/playlists'),
-          padding: const EdgeInsets.fromLTRB(22, 28, 14, 12),
-        ),
-        SizedBox(
-          height: 208,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 22),
-            itemCount: playlists.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 16),
-            itemBuilder: (context, index) {
-              final playlist = playlists[index];
-              return _MediaCard(
-                title: playlist.name,
-                subtitle: '${playlist.songs.length} canciones',
-                imageUrl: playlist.coverUrl,
-                onTap: () => context.push('/playlist/${playlist.id}'),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Tus favoritos (filtrado por descargas si está offline).
-class _FavoritesSection extends ConsumerWidget {
-  const _FavoritesSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final offline = ref.watch(effectiveOfflineProvider);
-    final downloadedIds = ref.watch(downloadedSongIdsProvider);
-    final favorites = ref.watch(favoritesProvider);
-    final favoritesShown = offline
-        ? favorites.where((song) => downloadedIds.contains(song.id)).toList()
-        : favorites;
-    if (favoritesShown.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(
-          'Tus favoritos',
-          subtitle: 'Las canciones que siempre quieres oír',
-          action: 'Ver todos',
-          onTap: () => context.push('/see-all/favorites'),
-          padding: const EdgeInsets.fromLTRB(22, 28, 14, 12),
-        ),
-        ...favoritesShown
-            .take(5)
-            .toList()
-            .asMap()
-            .entries
-            .map(
-              (entry) => SongTile(
-                entry.value,
-                playQueue: favoritesShown,
-                startIndex: entry.key,
-              ),
-            ),
-      ],
-    );
-  }
-}
-
 class _MoodMixesSection extends ConsumerWidget {
   const _MoodMixesSection();
 
@@ -901,13 +703,6 @@ class _MoodMixesSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final moods = ref.watch(moodMixesProvider);
     if (moods.isEmpty) return const SizedBox.shrink();
-    const colors = [
-      [Color(0xFF3B5B8A), Color(0xFF7EA0DE)],
-      [Color(0xFF8A3B4B), Color(0xFFE07A8A)],
-      [Color(0xFF1F6F78), Color(0xFF4FB3BF)],
-      [Color(0xFF4A3B6B), Color(0xFF9B87C4)],
-      [Color(0xFF6B4F1D), Color(0xFFD9A441)],
-    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -919,7 +714,7 @@ class _MoodMixesSection extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(22, 28, 14, 12),
         ),
         SizedBox(
-          height: 82,
+          height: 100,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
@@ -928,11 +723,13 @@ class _MoodMixesSection extends ConsumerWidget {
             separatorBuilder: (_, _) => const SizedBox(width: 10),
             itemBuilder: (context, index) {
               final mood = moods[index];
+              final artwork = genreArtworkFor(mood.title);
               return HomeMoodCard(
                 title: mood.title,
                 subtitle: mood.subtitle,
-                icon: Icons.auto_awesome_rounded,
-                colors: colors[index % colors.length],
+                icon: artwork.icon,
+                colors: artwork.colors,
+                imageUrl: artwork.imageUrl,
                 onTap: () {
                   if (mood.isMapped) {
                     context.push(
@@ -955,7 +752,7 @@ class _MoodMixesSection extends ConsumerWidget {
   }
 }
 
-/// Pantalla vacía cuando no hay historial ni favoritos.
+/// Pantalla vacía cuando todavía no hay historial.
 class _EmptyHomeSection extends ConsumerWidget {
   const _EmptyHomeSection();
 
@@ -964,14 +761,10 @@ class _EmptyHomeSection extends ConsumerWidget {
     final offline = ref.watch(effectiveOfflineProvider);
     final downloadedIds = ref.watch(downloadedSongIdsProvider);
     final history = ref.watch(historyProvider);
-    final favorites = ref.watch(favoritesProvider);
     final recent = offline
         ? history.where((song) => downloadedIds.contains(song.id)).toList()
         : history;
-    final favoritesShown = offline
-        ? favorites.where((song) => downloadedIds.contains(song.id)).toList()
-        : favorites;
-    if (recent.isNotEmpty || favoritesShown.isNotEmpty) {
+    if (recent.isNotEmpty) {
       return const SizedBox.shrink();
     }
     return const Padding(
@@ -1096,57 +889,6 @@ class _SongCard extends StatelessWidget {
   }
 }
 
-class _MediaCard extends StatelessWidget {
-  const _MediaCard({
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-    this.imageUrl,
-  });
-
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-  final String? imageUrl;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    const artSize = 150.0;
-    return SizedBox(
-      width: artSize,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AlbumArt(url: imageUrl, size: artSize, radius: 18),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _EmptyHomeCard extends StatelessWidget {
   const _EmptyHomeCard();
 
@@ -1192,7 +934,7 @@ class _EmptyHomeCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Busca una canción para empezar. Tus favoritos y tu historial aparecerán en esta pantalla.',
+                  'Busca una canción para empezar. Tu historial aparecerá en esta pantalla.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                     height: 1.4,

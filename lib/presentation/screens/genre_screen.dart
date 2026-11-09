@@ -9,38 +9,36 @@ import '../widgets/empty_state.dart';
 import '../widgets/home_cards.dart';
 
 class GenreScreen extends ConsumerWidget {
-  const GenreScreen({
-    super.key,
-    required this.params,
-    required this.title,
-  });
+  const GenreScreen({super.key, required this.params, required this.title});
 
   final String params;
   final String title;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(genrePlaylistsProvider(params));
+    final offline = ref.watch(effectiveOfflineProvider);
+    final request = (params: params, title: title);
+    final async = ref.watch(genrePlaylistsProvider(request));
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => EmptyState(
-          icon: ref.watch(effectiveOfflineProvider)
-              ? Icons.cloud_off_rounded
-              : Icons.category_rounded,
-          title: ref.watch(effectiveOfflineProvider)
-              ? 'Sin conexión'
-              : 'No se pudo cargar el género',
-          message: ref.watch(effectiveOfflineProvider)
+        error: (_, _) => EmptyState(
+          icon: offline ? Icons.cloud_off_rounded : Icons.category_rounded,
+          title: offline ? 'Sin conexión' : 'No se pudo cargar el género',
+          message: offline
               ? 'Este género necesita conexión. Tus descargas siguen disponibles.'
-              : '$error',
-          onRetry: () => ref.invalidate(genrePlaylistsProvider(params)),
+              : 'No pudimos cargar las playlists de este género. Revisa tu conexión e inténtalo de nuevo.',
+          onRetry: () => ref.invalidate(genrePlaylistsProvider(request)),
+          retryLabel: 'Reintentar',
         ),
         data: (playlists) => playlists.isEmpty
-            ? const EmptyState(
+            ? EmptyState(
                 icon: Icons.queue_music_rounded,
                 title: 'Sin playlists en este género',
+                message: 'No encontramos playlists para este género. Prueba con otro o vuelve a intentarlo.',
+                onRetry: () => ref.invalidate(genrePlaylistsProvider(request)),
+                retryLabel: 'Reintentar',
               )
             : _PlaylistGrid(playlists: playlists),
       ),

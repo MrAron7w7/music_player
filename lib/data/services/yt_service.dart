@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:ytmusicapi_dart/ytmusicapi_dart.dart';
 import 'package:ytmusicapi_dart/enums.dart';
 import 'package:ytmusicapi_dart/models/lyrics.dart';
+import 'package:ytmusicapi_dart/navigation.dart';
 
 import '../models/album_model.dart';
 import '../models/artist_model.dart';
@@ -31,6 +32,7 @@ class YtService {
     Object? Function(T value)? encode,
     T Function(Object? data)? decode,
     Duration timeout = const Duration(seconds: 14),
+
     /// Si se proporciona y devuelve `false`, el resultado no se guarda ni en
     /// caché de memoria ni en disco (útil para evitar cachear listas vacías
     /// o fallos parciales).
@@ -259,72 +261,69 @@ class YtService {
     SearchFilterType.artists,
     limit: limit,
     ignoreSpelling: ignoreSpelling,
-  ))
-      .map(ArtistModel.fromJson)
-      .where((artist) => artist.id.isNotEmpty)
-      .toList();
+  )).map(ArtistModel.fromJson).where((artist) => artist.id.isNotEmpty).toList();
 
   Future<List<PublicPlaylistModel>> searchPlaylists(
     String q, {
     int limit = 20,
     bool ignoreSpelling = false,
-  }) async => (await _search(
-    q,
-    SearchFilterType.playlists,
-    limit: limit,
-    ignoreSpelling: ignoreSpelling,
-  ))
-      .map(PublicPlaylistModel.fromJson)
-      .where((playlist) => playlist.id.isNotEmpty)
-      .toList();
+  }) async =>
+      (await _search(
+            q,
+            SearchFilterType.playlists,
+            limit: limit,
+            ignoreSpelling: ignoreSpelling,
+          ))
+          .map(PublicPlaylistModel.fromJson)
+          .where((playlist) => playlist.id.isNotEmpty)
+          .toList();
 
   /// Detalle completo de una playlist pública. Filtra entradas que no son
   /// reproducibles (episodios, podcasts y álbumes encadenados).
-  Future<PublicPlaylistPage> getPublicPlaylist(
-    String id, {
-    int limit = 100,
-  }) => _cached(
-    'publicPlaylist:$id:$limit',
-    () async {
-      final raw = Map<String, dynamic>.from(
-        await api.getPlaylist(id, limit: limit),
+  Future<PublicPlaylistPage> getPublicPlaylist(String id, {int limit = 100}) =>
+      _cached(
+        'publicPlaylist:$id:$limit',
+        () async {
+          final raw = Map<String, dynamic>.from(
+            await api.getPlaylist(id, limit: limit),
+          );
+          final tracks =
+              (raw['tracks'] as List? ?? raw['songs'] as List? ?? const [])
+                  .whereType<Map>()
+                  .map((entry) => Map<String, dynamic>.from(entry))
+                  .toList();
+          final songs = <SongModel>[];
+          final seen = <String>{};
+          for (final track in tracks) {
+            final song = SongModel.fromJson(track);
+            if (song.id.isEmpty || !seen.add(song.id)) continue;
+            if (song.id.startsWith('MPRE') ||
+                song.id.startsWith('MPLA') ||
+                song.id.startsWith('MPED') ||
+                song.id.startsWith('UC')) {
+              continue;
+            }
+            songs.add(song);
+          }
+          final header = PublicPlaylistModel.fromJson({
+            ...raw,
+            'browseId': raw['browseId'] ?? id,
+          });
+          final playlist = header.copyWith(
+            itemCount: header.itemCount ?? songs.length,
+            thumbnailUrl:
+                header.thumbnailUrl ?? songs.firstOrNull?.thumbnailUrl,
+          );
+          return PublicPlaylistPage(playlist: playlist, songs: songs);
+        },
+        ttl: const Duration(minutes: 30),
+        persistTtl: const Duration(hours: 6),
+        persistMaxEntries: 80,
+        timeout: const Duration(seconds: 20),
+        encode: (page) => page.toJson(),
+        decode: (data) =>
+            PublicPlaylistPage.fromJson(Map<String, dynamic>.from(data as Map)),
       );
-      final tracks = (raw['tracks'] as List? ?? raw['songs'] as List? ?? const [])
-          .whereType<Map>()
-          .map((entry) => Map<String, dynamic>.from(entry))
-          .toList();
-      final songs = <SongModel>[];
-      final seen = <String>{};
-      for (final track in tracks) {
-        final song = SongModel.fromJson(track);
-        if (song.id.isEmpty || !seen.add(song.id)) continue;
-        if (song.id.startsWith('MPRE') ||
-            song.id.startsWith('MPLA') ||
-            song.id.startsWith('MPED') ||
-            song.id.startsWith('UC')) {
-          continue;
-        }
-        songs.add(song);
-      }
-      final header = PublicPlaylistModel.fromJson({
-        ...raw,
-        'browseId': raw['browseId'] ?? id,
-      });
-      final playlist = header.copyWith(
-        itemCount: header.itemCount ?? songs.length,
-        thumbnailUrl:
-            header.thumbnailUrl ?? songs.firstOrNull?.thumbnailUrl,
-      );
-      return PublicPlaylistPage(playlist: playlist, songs: songs);
-    },
-    ttl: const Duration(minutes: 30),
-    persistTtl: const Duration(hours: 6),
-    persistMaxEntries: 80,
-    timeout: const Duration(seconds: 20),
-    encode: (page) => page.toJson(),
-    decode: (data) =>
-        PublicPlaylistPage.fromJson(Map<String, dynamic>.from(data as Map)),
-  );
 
   /// Sugerencias de autocompletado normalizadas.
   Future<List<SearchSuggestion>> getSearchSuggestions(
@@ -338,25 +337,29 @@ class YtService {
         detailedRuns: detailedRuns,
       );
       final list = raw is List ? raw : const [];
-      return list.whereType<Map>().map((entry) {
-        final map = Map<String, dynamic>.from(entry);
-        final runs = (map['runs'] as List? ?? const [])
-            .whereType<Map>()
-            .map(
-              (run) => SuggestionRun(
-                '${run['text'] ?? ''}',
-                bold: run['bold'] == true,
-              ),
-            )
-            .where((run) => run.text.isNotEmpty)
-            .toList();
-        return SearchSuggestion(
-          text: '${map['text'] ?? ''}',
-          runs: runs,
-          fromHistory: map['fromHistory'] == true,
-          feedbackToken: map['feedbackToken'] as String?,
-        );
-      }).where((suggestion) => suggestion.text.isNotEmpty).toList();
+      return list
+          .whereType<Map>()
+          .map((entry) {
+            final map = Map<String, dynamic>.from(entry);
+            final runs = (map['runs'] as List? ?? const [])
+                .whereType<Map>()
+                .map(
+                  (run) => SuggestionRun(
+                    '${run['text'] ?? ''}',
+                    bold: run['bold'] == true,
+                  ),
+                )
+                .where((run) => run.text.isNotEmpty)
+                .toList();
+            return SearchSuggestion(
+              text: '${map['text'] ?? ''}',
+              runs: runs,
+              fromHistory: map['fromHistory'] == true,
+              feedbackToken: map['feedbackToken'] as String?,
+            );
+          })
+          .where((suggestion) => suggestion.text.isNotEmpty)
+          .toList();
     },
     ttl: const Duration(minutes: 15),
     persistTtl: const Duration(days: 1),
@@ -418,28 +421,129 @@ class YtService {
     decode: (data) => Map<String, dynamic>.from(data as Map),
   );
 
-  Future<List<Map<String, dynamic>>> getMoodPlaylistsRaw(String params) =>
-      _cached(
-        'explore:genre:${params.hashCode}',
-        () async => (await api.getMoodPlaylists(params))
-            .whereType<Map>()
-            .map((entry) => Map<String, dynamic>.from(entry))
-            .toList(),
-        ttl: const Duration(hours: 24),
-        persistTtl: const Duration(hours: 24),
-        persistMaxEntries: 40,
-        encode: (value) => value,
-        decode: (data) => (data as List)
-            .whereType<Map>()
-            .map((entry) => Map<String, dynamic>.from(entry))
-            .toList(),
-      );
+  /// Playlists de una categoría de Moods & Genres.
+  ///
+  /// Algunas categorías (por ejemplo "African") mezclan canciones y playlists
+  /// en la misma respuesta. El parser del paquete asume que todos los
+  /// carruseles contienen tarjetas de playlist y lanza un `type cast` al toparse
+  /// con un `musicResponsiveListItemRenderer`. Aquí se leen solo las tarjetas
+  /// compatibles y, si no hay ninguna, se usa el buscador por título.
+  Future<List<Map<String, dynamic>>> getMoodPlaylistsRaw(
+    String params, {
+    String? title,
+  }) => _cached(
+    'explore:genre:v2:${params.hashCode}:${_queryKey(title ?? '')}',
+    () async {
+      try {
+        final response = Map<String, dynamic>.from(
+          await api.sendRequest('browse', {
+            'browseId': 'FEmusic_moods_and_genres_category',
+            'params': params,
+          }),
+        );
+        final playlists = _parseMoodPlaylists(response);
+        if (playlists.isNotEmpty) return playlists;
+      } catch (_) {
+        // El título permite intentar una búsqueda si el layout cambió.
+      }
+
+      final query = (title ?? '').trim();
+      if (query.isEmpty) return const <Map<String, dynamic>>[];
+      return _search(query, SearchFilterType.playlists, limit: 30);
+    },
+    ttl: const Duration(hours: 24),
+    persistTtl: const Duration(hours: 24),
+    persistMaxEntries: 40,
+    timeout: const Duration(seconds: 20),
+    encode: (value) => value,
+    decode: (data) => (data as List)
+        .whereType<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList(),
+  );
+
+  List<Map<String, dynamic>> _parseMoodPlaylists(
+    Map<String, dynamic> response,
+  ) {
+    final sections = nav(response, [
+      ...SINGLE_COLUMN_TAB,
+      ...SECTION_LIST,
+    ], nullIfAbsent: true);
+    if (sections is! List) return const [];
+
+    final result = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    for (final section in sections.whereType<Map>()) {
+      final items = _moodSectionItems(Map<String, dynamic>.from(section));
+      if (items == null) continue;
+      for (final item in items.whereType<Map>()) {
+        final playlist = _playlistFromMoodItem(Map<String, dynamic>.from(item));
+        if (playlist == null) continue;
+        final id = '${playlist['browseId'] ?? ''}';
+        if (id.isEmpty || !seen.add(id)) continue;
+        result.add(playlist);
+      }
+    }
+    return result;
+  }
+
+  List<dynamic>? _moodSectionItems(Map<String, dynamic> section) {
+    const paths = <List<String>>[
+      ['musicCarouselShelfRenderer', 'contents'],
+      ['musicShelfRenderer', 'contents'],
+      ['musicImmersiveCarouselShelfRenderer', 'contents'],
+      ['gridRenderer', 'items'],
+    ];
+    for (final path in paths) {
+      final value = nav(section, path, nullIfAbsent: true);
+      if (value is List) return value;
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _playlistFromMoodItem(Map<String, dynamic> item) {
+    final renderer = item['musicTwoRowItemRenderer'];
+    if (renderer is! Map) return null;
+    final real = Map<String, dynamic>.from(renderer);
+
+    final rawTitle = nav(real, TITLE_TEXT, nullIfAbsent: true);
+    final rawId = nav(real, [
+      ...TITLE,
+      ...NAVIGATION_BROWSE_ID,
+    ], nullIfAbsent: true);
+    if (rawTitle is! String || rawTitle.trim().isEmpty) return null;
+    if (rawId is! String || !rawId.startsWith('VL')) return null;
+
+    String? author;
+    int? count;
+    final runs = nav(real, ['subtitle', 'runs'], nullIfAbsent: true);
+    if (runs is List) {
+      for (final run in runs.whereType<Map>()) {
+        final text = '${run['text'] ?? ''}'.trim();
+        if (text.isEmpty) continue;
+        final match = RegExp(r'^(\d[\d.,]*)\s').firstMatch(text);
+        if (match != null) {
+          count = int.tryParse(match.group(1)!.replaceAll(RegExp(r'[.,]'), ''));
+          continue;
+        }
+        author ??= text;
+      }
+    }
+
+    final thumbnails = nav(real, THUMBNAIL_RENDERER, nullIfAbsent: true);
+    return {
+      'title': rawTitle,
+      'browseId': rawId,
+      if (thumbnails != null) 'thumbnails': thumbnails,
+      if (author != null) 'author': author,
+      if (count != null) 'count': count,
+    };
+  }
 
   Future<Map<String, dynamic>> getChartsRaw(String country) => _cached(
     'charts:v1:$country',
-    () async => Map<String, dynamic>.from(
-      await api.getCharts(country: country),
-    ),
+    () async =>
+        Map<String, dynamic>.from(await api.getCharts(country: country)),
     ttl: const Duration(hours: 12),
     persistTtl: const Duration(hours: 24),
     persistMaxEntries: 20,
@@ -511,7 +615,9 @@ class YtService {
       }
 
       if (!watchLoaded) {
-        throw StateError('No se pudo cargar la lista de reproducción relacionada de este video.');
+        throw StateError(
+          'No se pudo cargar la lista de reproducción relacionada de este video.',
+        );
       }
 
       if (watch != null) {
@@ -766,6 +872,69 @@ class YtService {
         .toList(),
   );
 
+  /// Comprueba si un artista tiene canciones o álbumes sin pedir su catálogo
+  /// completo. Se usa para filtrar resultados de búsqueda vacíos.
+  Future<bool> getArtistHasContent(String id) => _cached(
+    'artist:hasContent:v1:$id',
+    () async {
+      final page = await _artistPage(id);
+      final songs = page['songs'] is Map
+          ? (page['songs'] as Map)['results'] as List?
+          : null;
+      final albums = page['albums'] is Map
+          ? (page['albums'] as Map)['results'] as List?
+          : null;
+      return (songs?.isNotEmpty ?? false) || (albums?.isNotEmpty ?? false);
+    },
+    ttl: const Duration(hours: 6),
+    persistTtl: const Duration(hours: 24),
+    persistMaxEntries: 240,
+    timeout: const Duration(seconds: 18),
+    encode: (value) => value,
+    decode: (data) => data == true,
+  );
+
+  /// Catálogo completo del artista.
+  ///
+  /// La cabecera de YouTube Music solo trae los éxitos principales. La lista
+  /// completa vive en la playlist "Todas las canciones" (`songs.browseId`), que
+  /// aquí se pide con un límite alto y se usa como fallback de los éxitos.
+  Future<List<SongModel>> getArtistAllSongs(String id) => _cached(
+    'artist:allSongs:v1:$id',
+    () async {
+      final j = await _artistPage(id);
+      final songsBlock = j['songs'];
+      final topSongs = _songsFromMaps(
+        songsBlock is Map ? songsBlock['results'] : null,
+      );
+      final browseId = songsBlock is Map
+          ? '${songsBlock['browseId'] ?? ''}'
+          : '';
+      if (browseId.isNotEmpty) {
+        try {
+          final raw = Map<String, dynamic>.from(
+            await api.getPlaylist(browseId, limit: 200),
+          );
+          final all = _songsFromMaps(raw['tracks'] ?? raw['songs']);
+          if (all.isNotEmpty) return all;
+        } catch (_) {
+          // Si falla la lista completa, los éxitos siguen siendo válidos.
+        }
+      }
+      return topSongs;
+    },
+    ttl: const Duration(minutes: 30),
+    persistTtl: const Duration(hours: 12),
+    persistMaxEntries: 120,
+    timeout: const Duration(seconds: 24),
+    encode: (songs) => songs.map((song) => song.toJson()).toList(),
+    decode: (data) => (data as List)
+        .whereType<Map>()
+        .map((song) => SongModel.fromJson(Map<String, dynamic>.from(song)))
+        .where((song) => song.id.isNotEmpty)
+        .toList(),
+  );
+
   /// Radio del artista: mezcla sus canciones con artistas parecidos. Es una
   /// fuente ideal para recomendaciones porque YouTube Music ya la equilibra.
   Future<List<SongModel>> getArtistRadioSongs(String id, {int limit = 20}) =>
@@ -801,17 +970,19 @@ class YtService {
             .toList(),
       );
 
-  /// Página pública de un artista: nombre, portada, canciones top y álbumes.
+  /// Página pública de un artista: nombre, portada, canciones y álbumes.
   Future<ArtistPageModel> getArtistPage(String id) => _cached(
-    'artistPageModel:v2:$id',
+    'artistPageModel:v3:$id',
     () async {
       final j = await _artistPage(id);
       final name = '${j['name'] ?? 'Artista'}';
-      final thumb = SongModel.fromJson(j).thumbnailUrl;
-      final topSongs = await getArtistSongs(id);
+      final songsBlock = j['songs'];
+      final topSongs = _songsFromMaps(
+        songsBlock is Map ? songsBlock['results'] : null,
+      );
+      final allSongsFuture = getArtistAllSongs(id);
       final albumRaw = j['albums'];
-      final params =
-          albumRaw is Map ? albumRaw['params'] as String? : null;
+      final params = albumRaw is Map ? albumRaw['params'] as String? : null;
       final albumes = <AlbumModel>[];
       if (params != null && params.isNotEmpty) {
         try {
@@ -833,32 +1004,42 @@ class YtService {
           }
         } catch (_) {}
       }
+      final allSongs = await allSongsFuture.catchError((_) => topSongs);
+      final thumb =
+          SongModel.fromJson(j).thumbnailUrl ??
+          allSongs.firstOrNull?.artworkUrl ??
+          topSongs.firstOrNull?.artworkUrl;
       return ArtistPageModel(
         name: name,
         thumb: thumb,
         cancionesTop: topSongs,
+        canciones: allSongs,
         albumes: albumes,
       );
     },
     ttl: const Duration(minutes: 30),
     persistTtl: const Duration(hours: 12),
     persistMaxEntries: 100,
+    timeout: const Duration(seconds: 28),
     encode: (page) => {
       'name': page.name,
       'thumb': page.thumb,
       'cancionesTop': page.cancionesTop.map((s) => s.toJson()).toList(),
+      'canciones': page.canciones.map((s) => s.toJson()).toList(),
       'albumes': page.albumes.map((a) => a.toJson()).toList(),
     },
     decode: (data) {
       final d = Map<String, dynamic>.from(data as Map);
+      List<SongModel> songs(String key) => (d[key] as List? ?? const [])
+          .whereType<Map>()
+          .map((e) => SongModel.fromJson(Map<String, dynamic>.from(e)))
+          .where((s) => s.id.isNotEmpty)
+          .toList();
       return ArtistPageModel(
         name: '${d['name'] ?? 'Artista'}',
         thumb: d['thumb'] as String?,
-        cancionesTop: (d['cancionesTop'] as List? ?? const [])
-            .whereType<Map>()
-            .map((e) => SongModel.fromJson(Map<String, dynamic>.from(e)))
-            .where((s) => s.id.isNotEmpty)
-            .toList(),
+        cancionesTop: songs('cancionesTop'),
+        canciones: songs('canciones'),
         albumes: (d['albumes'] as List? ?? const [])
             .whereType<Map>()
             .map((e) => AlbumModel.fromJson(Map<String, dynamic>.from(e)))

@@ -30,17 +30,32 @@ class ArtistModel {
   };
 }
 
-/// Página de artista: nombre, portada, canciones top y álbumes.
+/// Página de artista: nombre, portada, canciones y álbumes.
 class ArtistPageModel {
   const ArtistPageModel({
     required this.name,
     required this.thumb,
     this.cancionesTop = const <SongModel>[],
+    this.canciones = const <SongModel>[],
     this.albumes = const <AlbumModel>[],
   });
 
   final String name;
   final String? thumb;
+
+  /// Éxitos principales que devuelve la cabecera del artista.
   final List<SongModel> cancionesTop;
+
+  /// Catálogo completo del artista. Puede estar vacío en respuestas antiguas
+  /// o cuando YouTube no expone la playlist "Todas las canciones".
+  final List<SongModel> canciones;
+
   final List<AlbumModel> albumes;
+
+  /// Lista que debe mostrar la página, priorizando el catálogo completo.
+  List<SongModel> get todasLasCanciones =>
+      canciones.isNotEmpty ? canciones : cancionesTop;
+
+  bool get tieneContenido =>
+      cancionesTop.isNotEmpty || canciones.isNotEmpty || albumes.isNotEmpty;
 }

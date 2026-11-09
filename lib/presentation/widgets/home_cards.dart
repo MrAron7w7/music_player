@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -22,11 +23,8 @@ class HomeArtwork extends StatelessWidget {
   final bool circular;
 
   @override
-  Widget build(BuildContext context) => AlbumArt(
-    url: url,
-    size: size,
-    radius: circular ? size / 2 : radius,
-  );
+  Widget build(BuildContext context) =>
+      AlbumArt(url: url, size: size, radius: circular ? size / 2 : radius);
 }
 
 class HomeSongCard extends ConsumerWidget {
@@ -99,7 +97,9 @@ class HomeSongCard extends ConsumerWidget {
             ),
             const SizedBox(height: 2),
             Text(
-              song.artists.isEmpty ? 'Artista desconocido' : song.artists.join(', '),
+              song.artists.isEmpty
+                  ? 'Artista desconocido'
+                  : song.artists.join(', '),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
@@ -167,7 +167,9 @@ class HomeAlbumCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: .8),
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: .8,
+                  ),
                 ),
               ),
             ],
@@ -215,7 +217,11 @@ class MixArtwork extends StatelessWidget {
           Row(
             children: [
               AlbumArt(url: urls[0], size: half, radius: 0),
-              AlbumArt(url: urls.length > 1 ? urls[1] : null, size: half, radius: 0),
+              AlbumArt(
+                url: urls.length > 1 ? urls[1] : null,
+                size: half,
+                radius: 0,
+              ),
             ],
           ),
           Row(
@@ -300,10 +306,12 @@ class HomeMoodCard extends StatelessWidget {
     super.key,
     required this.title,
     this.subtitle,
-    required this.icon,
+    this.icon = Icons.auto_awesome_rounded,
     required this.onTap,
     required this.colors,
-    this.width = 132,
+    required this.imageUrl,
+    this.width = 158,
+    this.height = 96,
   });
 
   final String title;
@@ -311,62 +319,99 @@ class HomeMoodCard extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final List<Color> colors;
+  final String imageUrl;
   final double width;
+  final double height;
 
   @override
   Widget build(BuildContext context) => SizedBox(
     width: width,
-    height: 82,
+    height: height,
     child: Material(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       clipBehavior: Clip.antiAlias,
-      child: Ink(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: colors,
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Icon(icon, color: Colors.white, size: 24),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      if (subtitle != null && subtitle!.isNotEmpty)
-                        Text(
-                          subtitle!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: .8),
-                            fontSize: 11,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: colors,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
             ),
           ),
-        ),
+          CachedNetworkImage(
+            imageUrl: imageUrl,
+            fit: BoxFit.cover,
+            fadeInDuration: const Duration(milliseconds: 220),
+            memCacheWidth: 600,
+            placeholder: (_, _) => const SizedBox.shrink(),
+            errorWidget: (_, _, _) => const SizedBox.shrink(),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: const [.18, 1],
+                colors: [
+                  Colors.black.withValues(alpha: .05),
+                  Colors.black.withValues(alpha: .74),
+                ],
+              ),
+            ),
+          ),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(13, 11, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black.withValues(alpha: .32),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: .28),
+                        ),
+                      ),
+                      child: Icon(icon, color: Colors.white, size: 17),
+                    ),
+                    const Spacer(),
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        height: 1.1,
+                      ),
+                    ),
+                    if (subtitle != null && subtitle!.isNotEmpty)
+                      Text(
+                        subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: .82),
+                          fontSize: 11,
+                          height: 1.2,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     ),
   );

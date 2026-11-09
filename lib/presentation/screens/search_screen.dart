@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/services/voice_search_controller.dart';
+import '../../data/models/artist_model.dart';
 import '../../data/models/search_models.dart';
 import '../../data/models/home_models.dart';
 import '../../data/models/song_model.dart';
@@ -636,7 +637,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         padding: const EdgeInsets.only(bottom: 110),
         children: [
           if (result.best != null)
-            _BestResult(hit: result.best!, onTap: () => _openHit(result.best!)),
+            _gateHit(
+              result.best!,
+              _BestResult(
+                hit: result.best!,
+                onTap: () => _openHit(result.best!),
+              ),
+            ),
           if (result.songs.isNotEmpty) ...[
             _Section(
               title: 'Canciones',
@@ -695,12 +702,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                 separatorBuilder: (_, __) => const SizedBox(width: 12),
                 itemBuilder: (context, index) {
                   final artist = result.artists[index];
-                  return HomeAlbumCard(
-                    title: artist.name,
-                    subtitle: artist.subscribers,
-                    imageUrl: artist.thumbnailUrl,
-                    circular: true,
-                    onTap: () => context.push('/artist/${artist.id}'),
+                  return _ArtistContentGate(
+                    artist: artist,
+                    child: HomeAlbumCard(
+                      title: artist.name,
+                      subtitle: artist.subscribers,
+                      imageUrl: artist.thumbnailUrl,
+                      circular: true,
+                      onTap: () => _openArtist(artist),
+                    ),
                   );
                 },
               ),
@@ -893,17 +903,32 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       );
     }
     if (artists.isEmpty) {
-      final hidden = state.items.length - artists.length;
+      final hiddenArtists = ref.watch(hiddenArtistIdsProvider);
+      final hiddenByContent = state.items
+          .where((artist) => hiddenArtists.contains(artist.id))
+          .length;
+      final hiddenByFilters =
+          (state.items.length - artists.length - hiddenByContent)
+              .clamp(0, state.items.length)
+              .toInt();
+      final allWithoutContent =
+          state.items.isNotEmpty && hiddenByContent == state.items.length;
       return SearchEmptyState(
         icon: Icons.people_alt_rounded,
-        title: state.items.isEmpty ? 'Sin artistas' : 'Sin coincidencias',
+        title: state.items.isEmpty
+            ? 'Sin artistas'
+            : allWithoutContent
+            ? 'Sin artistas disponibles'
+            : 'Sin coincidencias',
         message: state.items.isEmpty
             ? 'No encontramos artistas para “$_query”.'
+            : allWithoutContent
+            ? 'No encontramos artistas con canciones o álbumes para “$_query”.'
             : 'Los filtros ocultaron todos los artistas.',
-        actions: _catalogActions(includeClearFilters: state.items.isNotEmpty),
+        actions: _catalogActions(includeClearFilters: hiddenByFilters > 0),
         genres: _emptyGenres(),
         onGenreTap: _commit,
-        hiddenCount: hidden > 0 ? hidden : 0,
+        hiddenCount: hiddenByFilters,
       );
     }
     return RefreshIndicator(
@@ -925,24 +950,27 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
             );
           }
           final artist = artists[index];
-          return ListTile(
-            leading: AlbumArt(url: artist.thumbnailUrl, size: 52, radius: 26),
-            title: Text(artist.name, maxLines: 1),
-            subtitle: artist.subscribers == null
-                ? null
-                : Text(artist.subscribers!),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _ArtistFollowButton(
-                  id: artist.id,
-                  name: artist.name,
-                  thumbnailUrl: artist.thumbnailUrl,
-                ),
-                const Icon(Icons.chevron_right_rounded),
-              ],
+          return _ArtistContentGate(
+            artist: artist,
+            child: ListTile(
+              leading: AlbumArt(url: artist.thumbnailUrl, size: 52, radius: 26),
+              title: Text(artist.name, maxLines: 1),
+              subtitle: artist.subscribers == null
+                  ? null
+                  : Text(artist.subscribers!),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _ArtistFollowButton(
+                    id: artist.id,
+                    name: artist.name,
+                    thumbnailUrl: artist.thumbnailUrl,
+                  ),
+                  const Icon(Icons.chevron_right_rounded),
+                ],
+              ),
+              onTap: () => _openArtist(artist),
             ),
-            onTap: () => context.push('/artist/${artist.id}'),
           );
         },
       ),
@@ -1464,12 +1492,23 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     );
   }
 
+  Widget _gateHit(SearchHit hit, Widget child) {
+    final artist = hit.artist;
+    if (hit.type != SearchHitType.artist || artist == null) return child;
+    return _ArtistContentGate(artist: artist, child: child);
+  }
+
+  void _openArtist(ArtistModel artist) {
+    if (artist.id.isEmpty) return;
+    context.push('/artist/${artist.id}?fromSearch=1');
+  }
+
   void _openHit(SearchHit hit) {
     switch (hit.type) {
       case SearchHitType.album:
         context.push('/album/${hit.album!.id}');
       case SearchHitType.artist:
-        context.push('/artist/${hit.artist!.id}');
+        _openArtist(hit.artist!);
       case SearchHitType.playlist:
         context.push('/public-playlist/${hit.playlist!.id}');
       case SearchHitType.song:
@@ -1781,6 +1820,35 @@ class _BestResult extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// Mantiene el resultado visible mientras se comprueba el artista y lo retira
+/// en cuanto se confirma que no tiene canciones ni álbumes.
+class _ArtistContentGate extends ConsumerWidget {
+  const _ArtistContentGate({required this.artist, required this.child});
+
+  final ArtistModel artist;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hidden = ref.watch(hiddenArtistIdsProvider);
+    final status = ref.watch(artistContentStatusProvider(artist.id));
+    if (!hidden.contains(artist.id) && status.valueOrNull != false) {
+      return child;
+    }
+
+    if (!hidden.contains(artist.id)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        ref.read(hiddenArtistIdsProvider.notifier).update((ids) {
+          if (ids.contains(artist.id)) return ids;
+          return {...ids, artist.id};
+        });
+      });
+    }
+    return const SizedBox.shrink();
+  }
 }
 
 class _ArtistFollowButton extends ConsumerWidget {

@@ -46,8 +46,7 @@ class DailyMix {
         .map((song) => SongModel.fromJson(Map<String, dynamic>.from(song)))
         .where((song) => song.id.isNotEmpty)
         .toList(),
-    generatedAt:
-        DateTime.tryParse('${json['generatedAt']}') ?? DateTime.now(),
+    generatedAt: DateTime.tryParse('${json['generatedAt']}') ?? DateTime.now(),
     isOffline: json['isOffline'] == true,
     seedArtist: json['seedArtist'] as String?,
   );
@@ -168,8 +167,7 @@ class FollowedArtist {
     id: '${json['id']}',
     name: '${json['name'] ?? 'Artista'}',
     thumbnailUrl: json['thumbnailUrl'] as String?,
-    followedAt:
-        DateTime.tryParse('${json['followedAt']}') ?? DateTime.now(),
+    followedAt: DateTime.tryParse('${json['followedAt']}') ?? DateTime.now(),
   );
 }
 
@@ -192,7 +190,6 @@ enum SeeAllSection {
   dailyMixes,
   continueListening,
   forYou,
-  newReleases,
   trending,
   charts,
   genres,
@@ -211,7 +208,6 @@ extension SeeAllSectionX on SeeAllSection {
     SeeAllSection.dailyMixes => 'Daily Mix',
     SeeAllSection.continueListening => 'Seguir escuchando',
     SeeAllSection.forYou => 'Hecho para ti',
-    SeeAllSection.newReleases => 'Novedades',
     SeeAllSection.trending => 'Tendencias',
     SeeAllSection.charts => 'Charts',
     SeeAllSection.genres => 'Géneros',

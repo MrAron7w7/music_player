@@ -46,9 +46,7 @@ final suggestionsQueryProvider = StateProvider<String>((ref) => '');
 final localPlaysProvider = Provider<Map<String, int>>((ref) {
   final snapshot = ref.watch(statsProvider).valueOrNull;
   if (snapshot == null) return const {};
-  return {
-    for (final stat in snapshot.topSongs) stat.song.id: stat.plays,
-  };
+  return {for (final stat in snapshot.topSongs) stat.song.id: stat.plays};
 });
 
 final _effectiveQueryProvider = Provider.family<String, String>((ref, query) {
@@ -157,80 +155,83 @@ class SearchPageNotifier<T> extends StateNotifier<SearchPageState<T>> {
 }
 
 final searchSongsProvider = StateNotifierProvider.autoDispose
-    .family<SearchPageNotifier<SongModel>, SearchPageState<SongModel>, String>(
-      (ref, query) {
-        _keepAlive(ref);
-        final q = ref.watch(_effectiveQueryProvider(query));
-        return SearchPageNotifier<SongModel>(
-          idOf: (song) => song.id,
-          loadPage: (limit) => ref.read(ytServiceProvider).searchSongs(
-            q,
-            limit: limit,
-            ignoreSpelling: ref.read(ignoreSpellingProvider),
-          ),
-        );
-      },
-    );
+    .family<SearchPageNotifier<SongModel>, SearchPageState<SongModel>, String>((
+      ref,
+      query,
+    ) {
+      _keepAlive(ref);
+      final q = ref.watch(_effectiveQueryProvider(query));
+      return SearchPageNotifier<SongModel>(
+        idOf: (song) => song.id,
+        loadPage: (limit) => ref
+            .read(ytServiceProvider)
+            .searchSongs(
+              q,
+              limit: limit,
+              ignoreSpelling: ref.read(ignoreSpellingProvider),
+            ),
+      );
+    });
 
 final searchAlbumsProvider = StateNotifierProvider.autoDispose
     .family<
       SearchPageNotifier<AlbumModel>,
       SearchPageState<AlbumModel>,
       String
-    >(
-      (ref, query) {
-        _keepAlive(ref);
-        final q = ref.watch(_effectiveQueryProvider(query));
-        return SearchPageNotifier<AlbumModel>(
-          idOf: (album) => album.id,
-          loadPage: (limit) => ref.read(ytServiceProvider).searchAlbums(
-            q,
-            limit: limit,
-            ignoreSpelling: ref.read(ignoreSpellingProvider),
-          ),
-        );
-      },
-    );
+    >((ref, query) {
+      _keepAlive(ref);
+      final q = ref.watch(_effectiveQueryProvider(query));
+      return SearchPageNotifier<AlbumModel>(
+        idOf: (album) => album.id,
+        loadPage: (limit) => ref
+            .read(ytServiceProvider)
+            .searchAlbums(
+              q,
+              limit: limit,
+              ignoreSpelling: ref.read(ignoreSpellingProvider),
+            ),
+      );
+    });
 
 final searchArtistsProvider = StateNotifierProvider.autoDispose
     .family<
       SearchPageNotifier<ArtistModel>,
       SearchPageState<ArtistModel>,
       String
-    >(
-      (ref, query) {
-        _keepAlive(ref);
-        final q = ref.watch(_effectiveQueryProvider(query));
-        return SearchPageNotifier<ArtistModel>(
-          idOf: (artist) => artist.id,
-          loadPage: (limit) => ref.read(ytServiceProvider).searchArtists(
-            q,
-            limit: limit,
-            ignoreSpelling: ref.read(ignoreSpellingProvider),
-          ),
-        );
-      },
-    );
+    >((ref, query) {
+      _keepAlive(ref);
+      final q = ref.watch(_effectiveQueryProvider(query));
+      return SearchPageNotifier<ArtistModel>(
+        idOf: (artist) => artist.id,
+        loadPage: (limit) => ref
+            .read(ytServiceProvider)
+            .searchArtists(
+              q,
+              limit: limit,
+              ignoreSpelling: ref.read(ignoreSpellingProvider),
+            ),
+      );
+    });
 
 final searchPlaylistsProvider = StateNotifierProvider.autoDispose
     .family<
       SearchPageNotifier<PublicPlaylistModel>,
       SearchPageState<PublicPlaylistModel>,
       String
-    >(
-      (ref, query) {
-        _keepAlive(ref);
-        final q = ref.watch(_effectiveQueryProvider(query));
-        return SearchPageNotifier<PublicPlaylistModel>(
-          idOf: (playlist) => playlist.id,
-          loadPage: (limit) => ref.read(ytServiceProvider).searchPlaylists(
-            q,
-            limit: limit,
-            ignoreSpelling: ref.read(ignoreSpellingProvider),
-          ),
-        );
-      },
-    );
+    >((ref, query) {
+      _keepAlive(ref);
+      final q = ref.watch(_effectiveQueryProvider(query));
+      return SearchPageNotifier<PublicPlaylistModel>(
+        idOf: (playlist) => playlist.id,
+        loadPage: (limit) => ref
+            .read(ytServiceProvider)
+            .searchPlaylists(
+              q,
+              limit: limit,
+              ignoreSpelling: ref.read(ignoreSpellingProvider),
+            ),
+      );
+    });
 
 final searchAllProvider = FutureProvider.autoDispose
     .family<SearchAllResult, String>((ref, query) async {
@@ -280,7 +281,9 @@ final searchSuggestionsProvider = FutureProvider.autoDispose
         final remote = await ref
             .read(ytServiceProvider)
             .getSearchSuggestions(normalized);
-        final seen = <String>{for (final item in local) item.text.toLowerCase()};
+        final seen = <String>{
+          for (final item in local) item.text.toLowerCase(),
+        };
         final merged = [...local];
         for (final suggestion in remote) {
           if (!seen.add(suggestion.text.toLowerCase())) continue;
@@ -293,12 +296,32 @@ final searchSuggestionsProvider = FutureProvider.autoDispose
       }
     });
 
+/// Artistas que se comprobó que no tienen canciones ni álbumes. Se ocultan
+/// durante la sesión para no volver a ofrecer una página vacía.
+final hiddenArtistIdsProvider = StateProvider<Set<String>>((ref) => <String>{});
+
+/// Estado de contenido de un artista. Se consulta en segundo plano para
+/// retirar de los resultados los canales que no tienen canciones ni álbumes.
+final artistContentStatusProvider = FutureProvider.family<bool, String>((
+  ref,
+  id,
+) async {
+  if (id.isEmpty) return false;
+  try {
+    return await ref.watch(ytServiceProvider).getArtistHasContent(id);
+  } catch (_) {
+    // Ante un fallo de red no se oculta al artista.
+    return true;
+  }
+});
+
 final filteredSearchAllProvider = Provider.autoDispose
     .family<SearchAllResult, String>((ref, query) {
       final filters = ref.watch(searchFiltersProvider);
       final downloadedSongs = ref.watch(downloadedSongIdsProvider);
       final downloadedAlbums = ref.watch(downloadedAlbumIdsProvider);
       final downloadedArtists = ref.watch(downloadedArtistIdsProvider);
+      final hiddenArtists = ref.watch(hiddenArtistIdsProvider);
       final qualities = ref.watch(downloadQualityByIdProvider);
 
       final source = ref.watch(searchAllProvider(query)).valueOrNull;
@@ -319,8 +342,10 @@ final filteredSearchAllProvider = Provider.autoDispose
       final albums = sortAlbums(
         source.albums
             .where(
-              (album) =>
-                  filters.matchesAlbum(album, downloadedAlbumIds: downloadedAlbums),
+              (album) => filters.matchesAlbum(
+                album,
+                downloadedAlbumIds: downloadedAlbums,
+              ),
             )
             .toList(),
         filters.sort,
@@ -328,18 +353,18 @@ final filteredSearchAllProvider = Provider.autoDispose
       final artists = sortArtists(
         source.artists
             .where(
-              (artist) => filters.matchesArtist(
-                artist,
-                downloadedArtistIds: downloadedArtists,
-              ),
+              (artist) =>
+                  !hiddenArtists.contains(artist.id) &&
+                  filters.matchesArtist(
+                    artist,
+                    downloadedArtistIds: downloadedArtists,
+                  ),
             )
             .toList(),
         filters.sort,
       );
       final playlists = sortPublicPlaylists(
-        source.playlists
-            .where(filters.matchesPublicPlaylist)
-            .toList(),
+        source.playlists.where(filters.matchesPublicPlaylist).toList(),
         filters.sort,
       );
       final best = source.best;
@@ -348,7 +373,9 @@ final filteredSearchAllProvider = Provider.autoDispose
         albums: albums,
         artists: artists,
         playlists: playlists,
-        best: best != null && _bestVisible(best, songs, albums, artists, playlists)
+        best:
+            best != null &&
+                _bestVisible(best, songs, albums, artists, playlists)
             ? best
             : null,
       );
@@ -364,69 +391,72 @@ bool _bestVisible(
   return switch (best.type) {
     SearchHitType.song => songs.any((song) => song.id == best.song?.id),
     SearchHitType.album => albums.any((album) => album.id == best.album?.id),
-    SearchHitType.artist => artists.any((artist) => artist.id == best.artist?.id),
-    SearchHitType.playlist =>
-      playlists.any((playlist) => playlist.id == best.playlist?.id),
+    SearchHitType.artist => artists.any(
+      (artist) => artist.id == best.artist?.id,
+    ),
+    SearchHitType.playlist => playlists.any(
+      (playlist) => playlist.id == best.playlist?.id,
+    ),
   };
 }
 
-final filteredSongsProvider = Provider.autoDispose.family<List<SongModel>, String>((
-  ref,
-  query,
-) {
-  final filters = ref.watch(searchFiltersProvider);
-  final downloaded = ref.watch(downloadedSongIdsProvider);
-  final qualities = ref.watch(downloadQualityByIdProvider);
-  final state = ref.watch(searchSongsProvider(query));
-  return sortSongs(
-    state.items
-        .where(
-          (song) => filters.matchesSong(
-            song,
-            downloadedSongIds: downloaded,
-            downloadQualityById: qualities,
-          ),
-        )
-        .toList(),
-    filters.sort,
-    localPlays: ref.watch(localPlaysProvider),
-  );
-});
+final filteredSongsProvider = Provider.autoDispose
+    .family<List<SongModel>, String>((ref, query) {
+      final filters = ref.watch(searchFiltersProvider);
+      final downloaded = ref.watch(downloadedSongIdsProvider);
+      final qualities = ref.watch(downloadQualityByIdProvider);
+      final state = ref.watch(searchSongsProvider(query));
+      return sortSongs(
+        state.items
+            .where(
+              (song) => filters.matchesSong(
+                song,
+                downloadedSongIds: downloaded,
+                downloadQualityById: qualities,
+              ),
+            )
+            .toList(),
+        filters.sort,
+        localPlays: ref.watch(localPlaysProvider),
+      );
+    });
 
-final filteredAlbumsProvider = Provider.autoDispose.family<List<AlbumModel>, String>((
-  ref,
-  query,
-) {
-  final filters = ref.watch(searchFiltersProvider);
-  final downloaded = ref.watch(downloadedAlbumIdsProvider);
-  final state = ref.watch(searchAlbumsProvider(query));
-  return sortAlbums(
-    state.items
-        .where(
-          (album) => filters.matchesAlbum(album, downloadedAlbumIds: downloaded),
-        )
-        .toList(),
-    filters.sort,
-  );
-});
+final filteredAlbumsProvider = Provider.autoDispose
+    .family<List<AlbumModel>, String>((ref, query) {
+      final filters = ref.watch(searchFiltersProvider);
+      final downloaded = ref.watch(downloadedAlbumIdsProvider);
+      final state = ref.watch(searchAlbumsProvider(query));
+      return sortAlbums(
+        state.items
+            .where(
+              (album) =>
+                  filters.matchesAlbum(album, downloadedAlbumIds: downloaded),
+            )
+            .toList(),
+        filters.sort,
+      );
+    });
 
-final filteredArtistsProvider = Provider.autoDispose.family<List<ArtistModel>, String>((
-  ref,
-  query,
-) {
-  final filters = ref.watch(searchFiltersProvider);
-  final downloaded = ref.watch(downloadedArtistIdsProvider);
-  final state = ref.watch(searchArtistsProvider(query));
-  return sortArtists(
-    state.items
-        .where(
-          (artist) =>
-              filters.matchesArtist(artist, downloadedArtistIds: downloaded),
-        )
-        .toList(),
-    filters.sort,
-  );
-});
+final filteredArtistsProvider = Provider.autoDispose
+    .family<List<ArtistModel>, String>((ref, query) {
+      final filters = ref.watch(searchFiltersProvider);
+      final downloaded = ref.watch(downloadedArtistIdsProvider);
+      final hiddenArtists = ref.watch(hiddenArtistIdsProvider);
+      final state = ref.watch(searchArtistsProvider(query));
+      return sortArtists(
+        state.items
+            .where(
+              (artist) =>
+                  !hiddenArtists.contains(artist.id) &&
+                  filters.matchesArtist(
+                    artist,
+                    downloadedArtistIds: downloaded,
+                  ),
+            )
+            .toList(),
+        filters.sort,
+      );
+    });
 
 final filteredPlaylistsProvider = Provider.autoDispose
     .family<List<PublicPlaylistModel>, String>((ref, query) {
@@ -441,24 +471,17 @@ final filteredPlaylistsProvider = Provider.autoDispose
 class SearchSelectionNotifier extends StateNotifier<SearchSelectionState> {
   SearchSelectionNotifier() : super(const SearchSelectionState());
 
-  void enter(String id) => state = SearchSelectionState(
-    selecting: true,
-    songIds: {id},
-  );
+  void enter(String id) =>
+      state = SearchSelectionState(selecting: true, songIds: {id});
 
   void toggle(String id) {
     final ids = {...state.songIds};
     if (!ids.add(id)) ids.remove(id);
-    state = SearchSelectionState(
-      selecting: ids.isNotEmpty,
-      songIds: ids,
-    );
+    state = SearchSelectionState(selecting: ids.isNotEmpty, songIds: ids);
   }
 
-  void selectAll(Iterable<String> ids) => state = SearchSelectionState(
-    selecting: true,
-    songIds: ids.toSet(),
-  );
+  void selectAll(Iterable<String> ids) =>
+      state = SearchSelectionState(selecting: true, songIds: ids.toSet());
 
   void clear() => state = const SearchSelectionState();
 
@@ -466,9 +489,10 @@ class SearchSelectionNotifier extends StateNotifier<SearchSelectionState> {
 }
 
 final searchSelectionProvider =
-    StateNotifierProvider.autoDispose<SearchSelectionNotifier, SearchSelectionState>(
-      (ref) => SearchSelectionNotifier(),
-    );
+    StateNotifierProvider.autoDispose<
+      SearchSelectionNotifier,
+      SearchSelectionState
+    >((ref) => SearchSelectionNotifier());
 
 /// Historial local con operaciones atómicas y persistencia inmediata.
 class SearchHistoryNotifier extends StateNotifier<List<String>> {
@@ -477,7 +501,10 @@ class SearchHistoryNotifier extends StateNotifier<List<String>> {
   final Ref ref;
 
   static List<String> _read(Ref ref) {
-    final saved = ref.read(localRepositoryProvider).settings.get('searchHistory');
+    final saved = ref
+        .read(localRepositoryProvider)
+        .settings
+        .get('searchHistory');
     return saved is List ? saved.whereType<String>().toList() : <String>[];
   }
 
@@ -515,7 +542,10 @@ class SearchHistoryNotifier extends StateNotifier<List<String>> {
   }
 
   Future<void> _save(List<String> values) async {
-    await ref.read(localRepositoryProvider).settings.put('searchHistory', values);
+    await ref
+        .read(localRepositoryProvider)
+        .settings
+        .put('searchHistory', values);
     state = values;
   }
 }
@@ -568,29 +598,31 @@ class LyricsIndexController extends StateNotifier<LyricsIndexProgress> {
 }
 
 final lyricsIndexControllerProvider =
-    StateNotifierProvider.autoDispose<LyricsIndexController, LyricsIndexProgress>(
-      (ref) => LyricsIndexController(ref.watch(lyricsIndexServiceProvider)),
-    );
+    StateNotifierProvider.autoDispose<
+      LyricsIndexController,
+      LyricsIndexProgress
+    >((ref) => LyricsIndexController(ref.watch(lyricsIndexServiceProvider)));
 
-final spellingSuggestionProvider = Provider.autoDispose
-    .family<String?, String>((ref, query) {
-      final suggestions = ref.watch(searchSuggestionsProvider(query)).valueOrNull;
-      if (suggestions == null || suggestions.isEmpty) return null;
-      final normalized = query.trim().toLowerCase();
-      final threshold = normalized.length <= 6 ? 0.72 : 0.60;
-      String? best;
-      var bestScore = 0.0;
-      for (final suggestion in suggestions) {
-        final candidate = suggestion.text.trim();
-        if (candidate.isEmpty || candidate.toLowerCase() == normalized) continue;
-        final score = _similarity(normalized, candidate.toLowerCase());
-        if (score >= threshold && score > bestScore) {
-          bestScore = score;
-          best = candidate;
-        }
+final spellingSuggestionProvider = Provider.autoDispose.family<String?, String>(
+  (ref, query) {
+    final suggestions = ref.watch(searchSuggestionsProvider(query)).valueOrNull;
+    if (suggestions == null || suggestions.isEmpty) return null;
+    final normalized = query.trim().toLowerCase();
+    final threshold = normalized.length <= 6 ? 0.72 : 0.60;
+    String? best;
+    var bestScore = 0.0;
+    for (final suggestion in suggestions) {
+      final candidate = suggestion.text.trim();
+      if (candidate.isEmpty || candidate.toLowerCase() == normalized) continue;
+      final score = _similarity(normalized, candidate.toLowerCase());
+      if (score >= threshold && score > bestScore) {
+        bestScore = score;
+        best = candidate;
       }
-      return best;
-    });
+    }
+    return best;
+  },
+);
 
 double _similarity(String a, String b) {
   final maxLength = a.length > b.length ? a.length : b.length;
@@ -639,8 +671,7 @@ final rediscoverProvider = Provider<List<SongModel>>((ref) {
       if (stat.plays <= 0) return false;
       final last = stat.lastPlayed;
       return last == null || now.difference(last).inDays > 30;
-    }).toList()
-      ..sort((a, b) => b.seconds.compareTo(a.seconds));
+    }).toList()..sort((a, b) => b.seconds.compareTo(a.seconds));
     if (candidates.isNotEmpty) {
       return candidates.take(12).map((stat) => stat.song).toList();
     }

@@ -36,8 +36,7 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
   }
 
   bool _onScroll(ScrollNotification notification) {
-    if (notification.depth != 0 ||
-        notification.metrics.axis != Axis.vertical) {
+    if (notification.depth != 0 || notification.metrics.axis != Axis.vertical) {
       return false;
     }
     final pixels = notification.metrics.pixels;
@@ -72,16 +71,18 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
     final theme = Theme.of(context);
     final media = MediaQuery.of(context);
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: (theme.brightness == Brightness.dark
-              ? SystemUiOverlayStyle.light
-              : SystemUiOverlayStyle.dark)
-          .copyWith(
-        statusBarColor: Colors.transparent,
-        systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarIconBrightness: theme.brightness == Brightness.dark
-            ? Brightness.light
-            : Brightness.dark,
-      ),
+      value:
+          (theme.brightness == Brightness.dark
+                  ? SystemUiOverlayStyle.light
+                  : SystemUiOverlayStyle.dark)
+              .copyWith(
+                statusBarColor: Colors.transparent,
+                systemNavigationBarColor: Colors.transparent,
+                systemNavigationBarIconBrightness:
+                    theme.brightness == Brightness.dark
+                    ? Brightness.light
+                    : Brightness.dark,
+              ),
       child: Scaffold(
         extendBody: true,
         body: NotificationListener<ScrollNotification>(
@@ -101,7 +102,16 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const MiniPlayer(),
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: _navVisible ? 0 : 74),
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                builder: (context, offset, child) => Transform.translate(
+                  offset: Offset(0, offset),
+                  child: child,
+                ),
+                child: const MiniPlayer(),
+              ),
               const SizedBox(height: 8),
               AnimatedSlide(
                 offset: _navVisible ? Offset.zero : const Offset(0, 1.6),

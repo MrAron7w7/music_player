@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/utils/text_utils.dart';
-import '../data/models/album_model.dart';
 import '../data/models/explore_models.dart';
 import '../data/models/home_models.dart';
 import '../data/models/public_playlist_model.dart';
@@ -17,10 +16,6 @@ final exploreServiceProvider = Provider<ExploreService>(
 /// caché en memoria y evitar llamadas duplicadas entre pestañas.
 final exploreBundleProvider = FutureProvider<ExploreBundle>(
   (ref) => ref.watch(exploreServiceProvider).getExploreBundle(),
-);
-
-final newReleasesProvider = Provider<List<AlbumModel>>(
-  (ref) => ref.watch(exploreBundleProvider).valueOrNull?.newReleases ?? const [],
 );
 
 final trendingProvider = Provider<List<SongModel>>((ref) {
@@ -46,10 +41,13 @@ final genresProvider = Provider<List<GenreCategory>>((ref) {
   return fromCategories ?? const [];
 });
 
+typedef GenrePlaylistRequest = ({String params, String title});
+
 final genrePlaylistsProvider = FutureProvider.autoDispose
-    .family<List<PublicPlaylistModel>, String>(
-      (ref, params) =>
-          ref.watch(exploreServiceProvider).getGenrePlaylists(params),
+    .family<List<PublicPlaylistModel>, GenrePlaylistRequest>(
+      (ref, request) => ref
+          .watch(exploreServiceProvider)
+          .getGenrePlaylists(request.params, title: request.title),
     );
 
 final chartCountryProvider = StateProvider<String>((ref) => 'ZZ');
@@ -63,7 +61,8 @@ final chartsProvider = FutureProvider<ChartsSnapshot>(
 final moodMixesProvider = Provider<List<MoodMix>>((ref) {
   final genres = ref.watch(genresProvider);
   final normalized = [
-    for (final genre in genres) (genre: genre, normalized: normalize(genre.title)),
+    for (final genre in genres)
+      (genre: genre, normalized: normalize(genre.title)),
   ];
   return [
     for (final config in moodMixConfigs)

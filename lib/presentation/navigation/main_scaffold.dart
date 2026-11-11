@@ -121,46 +121,177 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
                   opacity: _navVisible ? 1 : 0,
                   duration: const Duration(milliseconds: 180),
                   child: _GlassSurface(
-                    radius: 28,
-                    child: NavigationBar(
-                      selectedIndex: index,
-                      onDestinationSelected: (i) => _selectTab(i, index),
-                      height: 66,
-                      elevation: 0,
-                      backgroundColor: Colors.transparent,
-                      surfaceTintColor: Colors.transparent,
-                      indicatorColor: theme.colorScheme.primary.withValues(
-                        alpha: .16,
+                    radius: 26,
+                    child: SizedBox(
+                      height: 68,
+                      child: _MusicNavigationBar(
+                        index: index,
+                        onSelected: (i) => _selectTab(i, index),
                       ),
-                      labelBehavior:
-                          NavigationDestinationLabelBehavior.alwaysShow,
-                      destinations: const [
-                        NavigationDestination(
-                          icon: Icon(Icons.home_outlined),
-                          selectedIcon: Icon(Icons.home_rounded),
-                          label: 'Inicio',
-                        ),
-                        NavigationDestination(
-                          icon: Icon(Icons.search_outlined),
-                          selectedIcon: Icon(Icons.search_rounded),
-                          label: 'Buscar',
-                        ),
-                        NavigationDestination(
-                          icon: Icon(Icons.library_music_outlined),
-                          selectedIcon: Icon(Icons.library_music_rounded),
-                          label: 'Biblioteca',
-                        ),
-                        NavigationDestination(
-                          icon: Icon(Icons.settings_outlined),
-                          selectedIcon: Icon(Icons.settings_rounded),
-                          label: 'Ajustes',
-                        ),
-                      ],
                     ),
                   ),
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Dock de navegación propio: el destino activo se convierte en una cápsula
+/// ancha con degradado y etiqueta, mientras el resto queda como iconos limpios.
+class _MusicNavigationBar extends StatelessWidget {
+  const _MusicNavigationBar({required this.index, required this.onSelected});
+
+  final int index;
+  final ValueChanged<int> onSelected;
+
+  static const _items =
+      <({String label, IconData icon, IconData selectedIcon})>[
+        (
+          label: 'Inicio',
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home_rounded,
+        ),
+        (
+          label: 'Buscar',
+          icon: Icons.search_outlined,
+          selectedIcon: Icons.search_rounded,
+        ),
+        (
+          label: 'Biblioteca',
+          icon: Icons.library_music_outlined,
+          selectedIcon: Icons.library_music_rounded,
+        ),
+        (
+          label: 'Ajustes',
+          icon: Icons.settings_outlined,
+          selectedIcon: Icons.settings_rounded,
+        ),
+      ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          for (var i = 0; i < _items.length; i++)
+            _NavDockItem(
+              label: _items[i].label,
+              icon: _items[i].icon,
+              selectedIcon: _items[i].selectedIcon,
+              selected: i == index,
+              onTap: () => onSelected(i),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavDockItem extends StatelessWidget {
+  const _NavDockItem({
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final activeColor = colors.onPrimary;
+    return Semantics(
+      label: label,
+      selected: selected,
+      button: true,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+        width: selected ? 118 : 50,
+        height: 52,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: selected
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color.lerp(colors.primary, Colors.white, .16)!,
+                    colors.primary,
+                  ],
+                )
+              : null,
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: colors.primary.withValues(alpha: .32),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : null,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: selected ? 13 : 0),
+              child: Row(
+                mainAxisAlignment: selected
+                    ? MainAxisAlignment.start
+                    : MainAxisAlignment.center,
+                children: [
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    transitionBuilder: (child, animation) => ScaleTransition(
+                      scale: animation,
+                      child: FadeTransition(opacity: animation, child: child),
+                    ),
+                    child: Icon(
+                      selected ? selectedIcon : icon,
+                      key: ValueKey(selected),
+                      size: 23,
+                      color: selected
+                          ? activeColor
+                          : colors.onSurfaceVariant.withValues(alpha: .78),
+                    ),
+                  ),
+                  if (selected) ...[
+                    const SizedBox(width: 9),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: activeColor,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -.1,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
       ),

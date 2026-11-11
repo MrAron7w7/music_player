@@ -39,10 +39,10 @@ class ArtistSpotlight {
   final List<SongModel> songs;
 }
 
-/// Recomendaciones personalizadas: combina historial reciente, estadísticas y
-/// favoritos, y mezcla canciones relacionadas con radios de los artistas que
-/// más escuchas. Se excluyen las canciones ya conocidas para que la sección se
-/// sienta fresca y no repita siempre lo mismo.
+/// Recomendaciones personalizadas: combina historial reciente, estadísticas,
+/// favoritos y descargas, y mezcla canciones relacionadas con radios de los
+/// artistas que más escuchas. Se excluyen las canciones ya conocidas para que
+/// la sección se sienta fresca y no repita siempre lo mismo.
 final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>((
   ref,
 ) async {
@@ -51,6 +51,7 @@ final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>(
   // Al volver a Inicio el proveedor se recrea y toma el historial más reciente.
   final history = ref.read(historyProvider);
   final favorites = ref.watch(favoritesProvider);
+  final downloads = ref.watch(downloadedSongsProvider);
 
   StatsSnapshot? stats;
   try {
@@ -70,6 +71,7 @@ final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>(
 
   addSource(history.take(6));
   addSource(favorites.take(3));
+  addSource(downloads.take(4));
   addSource(
     stats?.topSongs.take(10).map((stat) => stat.song) ?? const <SongModel>[],
   );
@@ -92,7 +94,10 @@ final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>(
   // Una sola tanda de recomendaciones por día. Antes la clave incluía las
   // semillas y el historial, así que cada canción reproducida provocaba otra
   // llamada de red aun estando en Inicio.
-  final cacheKey = 'home:recommendations:v4:$day';
+  final downloadSignature = Object.hashAll(
+    downloads.take(6).map((song) => song.id),
+  );
+  final cacheKey = 'home:recommendations:v5:$day:$downloadSignature';
   final stored = cache.get<List>(cacheKey);
   if (stored != null) {
     final cached = stored
@@ -106,6 +111,7 @@ final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>(
   final artistIds = <String>{};
   for (final song in <SongModel>[
     ...seeds,
+    ...downloads.take(4),
     ...(stats?.topSongs.take(8).map((stat) => stat.song) ??
         const <SongModel>[]),
   ]) {
@@ -151,6 +157,7 @@ final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>(
   final excluded = <String>{
     for (final song in history) song.id,
     for (final song in favorites) song.id,
+    for (final song in downloads) song.id,
     for (final song in seeds) song.id,
   };
   final seen = <String>{};
@@ -204,65 +211,60 @@ final homeRecommendationsProvider = FutureProvider.autoDispose<List<SongModel>>(
 
 /// Artista de la canción actual: solo su ID y nombre. Cambia de parámetro
 /// cuando cambia el artista, no cuando cambia la canción.
-final currentArtistInfoProvider = Provider.autoDispose<({String id, String name})?>(
-  (ref) {
-    final song = ref.watch(
-      currentSongProvider.select((state) => state.valueOrNull),
-    );
-    if (song == null || song.id.isEmpty) return null;
-    final id = song.artistIds?.firstOrNull;
-    if (id == null || id.isEmpty) return null;
-    final name = song.artists.isNotEmpty ? song.artists.first : 'tu artista';
-    return (id: id, name: name);
-  },
-);
+final currentArtistInfoProvider =
+    Provider.autoDispose<({String id, String name})?>((ref) {
+      final song = ref.watch(
+        currentSongProvider.select((state) => state.valueOrNull),
+      );
+      if (song == null || song.id.isEmpty) return null;
+      final id = song.artistIds?.firstOrNull;
+      if (id == null || id.isEmpty) return null;
+      final name = song.artists.isNotEmpty ? song.artists.first : 'tu artista';
+      return (id: id, name: name);
+    });
 
 /// Sugerencias contextuales para un artista: más canciones de ese artista y
 /// artistas parecidos, evitando el historial reciente.
 final artistSpotlightProvider = FutureProvider.autoDispose
-    .family<ArtistSpotlight?, String>((
-  ref,
-  artistId,
-) async {
-  if (artistId.isEmpty) return null;
-  final history = ref.read(historyProvider);
-  final yt = ref.watch(ytServiceProvider);
+    .family<ArtistSpotlight?, String>((ref, artistId) async {
+      if (artistId.isEmpty) return null;
+      final history = ref.read(historyProvider);
+      final yt = ref.watch(ytServiceProvider);
 
-  final excluded = <String>{};
-  for (final song in history.take(24)) {
-    excluded.add(song.id);
-  }
+      final excluded = <String>{};
+      for (final song in history.take(24)) {
+        excluded.add(song.id);
+      }
 
-  final songs = await yt.getArtistRecommendations(artistId, limit: 14);
-  final seen = <String>{...excluded};
-  final artistCounts = <String, int>{};
-  final result = <SongModel>[];
-  var artistName = 'tu artista';
+      final songs = await yt.getArtistRecommendations(artistId, limit: 14);
+      final seen = <String>{...excluded};
+      final artistCounts = <String, int>{};
+      final result = <SongModel>[];
+      var artistName = 'tu artista';
 
-  for (final song in songs) {
-    if (result.length >= 12) break;
-    if (song.id.isEmpty || !seen.add(song.id)) continue;
-    final artistKey = _artistKey(song);
-    if (artistName == 'tu artista' && song.artists.isNotEmpty) {
-      artistName = song.artists.first;
-    }
-    if (artistKey.isNotEmpty &&
-        (artistCounts[artistKey] ?? 0) >= 2) {
-      continue;
-    }
-    if (artistKey.isNotEmpty) {
-      artistCounts[artistKey] = (artistCounts[artistKey] ?? 0) + 1;
-    }
-    result.add(song);
-  }
+      for (final song in songs) {
+        if (result.length >= 12) break;
+        if (song.id.isEmpty || !seen.add(song.id)) continue;
+        final artistKey = _artistKey(song);
+        if (artistName == 'tu artista' && song.artists.isNotEmpty) {
+          artistName = song.artists.first;
+        }
+        if (artistKey.isNotEmpty && (artistCounts[artistKey] ?? 0) >= 2) {
+          continue;
+        }
+        if (artistKey.isNotEmpty) {
+          artistCounts[artistKey] = (artistCounts[artistKey] ?? 0) + 1;
+        }
+        result.add(song);
+      }
 
-  if (result.isEmpty) return null;
-  return ArtistSpotlight(
-    artistId: artistId,
-    artistName: artistName,
-    songs: result,
-  );
-});
+      if (result.isEmpty) return null;
+      return ArtistSpotlight(
+        artistId: artistId,
+        artistName: artistName,
+        songs: result,
+      );
+    });
 
 String _artistKey(SongModel song) =>
     song.artists.isEmpty ? '' : song.artists.first.trim().toLowerCase();

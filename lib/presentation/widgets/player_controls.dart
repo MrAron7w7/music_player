@@ -78,7 +78,7 @@ class PlayerControls extends ConsumerWidget {
         ),
         IconButton(
           tooltip: handler.nextUsesSmartQueue
-              ? 'Siguiente (radio relacionada)'
+              ? 'Siguiente (recomendación inteligente)'
               : 'Siguiente',
           visualDensity: VisualDensity.compact,
           onPressed: handler.hasNext
@@ -91,7 +91,9 @@ class PlayerControls extends ConsumerWidget {
             Icons.skip_next_rounded,
             size: 44,
             color: foreground.withValues(
-              alpha: (handler.hasNext || handler.nextUsesSmartQueue) ? .95 : .25,
+              alpha: (handler.hasNext || handler.nextUsesSmartQueue)
+                  ? .95
+                  : .25,
             ),
           ),
         ),

@@ -6,6 +6,7 @@ import 'package:ytmusicapi_dart/enums.dart';
 import 'package:ytmusicapi_dart/models/lyrics.dart';
 import 'package:ytmusicapi_dart/navigation.dart';
 
+import '../../core/utils/song_variant_utils.dart';
 import '../models/album_model.dart';
 import '../models/artist_model.dart';
 import '../models/public_playlist_model.dart';
@@ -653,41 +654,79 @@ class YtService {
   );
 
   /// Cola inteligente para una canción: equilibra pistas del álbum,
-  /// canciones relacionadas y éxitos del mismo artista. Las listas que fallan
-  /// simplemente no aportan candidatos, sin romper la reproducción.
+  /// canciones relacionadas, éxitos del mismo artista y artistas afines al
+  /// historial de escucha. Las listas que fallan simplemente no aportan
+  /// candidatos, sin romper la reproducción.
+  ///
+  /// [preferredArtistIds] llega desde las estadísticas locales: son los
+  /// artistas que más escucha el usuario. [excludeTitleKeys] evita volver a
+  /// encolar covers, versiones de guitarra o remixes de la misma canción.
   Future<List<SongModel>> getSmartQueue(
     SongModel seed, {
     Set<String> excludeIds = const {},
+    Set<String> excludeTitleKeys = const {},
+    List<String> preferredArtistIds = const [],
     int limit = 24,
   }) async {
     if (seed.id.isEmpty || limit <= 0) return const [];
     final excluded = {...excludeIds, seed.id};
+    final seedArtistIds = seed.artistIds?.toSet() ?? const <String>{};
+    final tasteArtistIds = preferredArtistIds
+        .where((id) => id.isNotEmpty && !seedArtistIds.contains(id))
+        .toSet()
+        .take(2)
+        .toList();
 
     final batches = await Future.wait<List<SongModel>>([
       _albumTracksFor(seed),
       _safeRelatedSongs(seed.id),
       _safeArtistSongs(seed.artistIds),
+      _safeTasteSongs(tasteArtistIds),
     ]);
-    final album = _uniqueSongs(batches[0], excluded).take(6).toList();
-    final related = _uniqueSongs(batches[1], excluded).take(14).toList();
-    final artist = _uniqueSongs(batches[2], excluded).take(8).toList();
+
+    // Un mismo conjunto de ids/títulos se comparte entre grupos para que una
+    // canción no entre dos veces y para que no se repita el tema de la semilla
+    // con otro artista. El título base es la defensa principal contra las
+    // decenas de covers que devuelve YouTube Music.
+    final usedIds = <String>{...excluded};
+    final usedTitles = <String>{...excludeTitleKeys};
+    final seedTitle = songTitleKey(seed.title);
+    if (seedTitle.isNotEmpty) usedTitles.add(seedTitle);
+
+    List<SongModel> takePool(Iterable<SongModel> source, int max) {
+      final result = <SongModel>[];
+      for (final song in source) {
+        if (result.length >= max) break;
+        if (song.id.isEmpty || !usedIds.add(song.id)) continue;
+        final titleKey = songTitleKey(song.title);
+        if (titleKey.isEmpty || !usedTitles.add(titleKey)) continue;
+        if (isSameSongVariant(song, seed)) continue;
+        result.add(song);
+      }
+      return result;
+    }
+
+    final album = takePool(batches[0], 6);
+    final related = takePool(batches[1], 14);
+    final artist = takePool(batches[2], 8);
+    final taste = takePool(batches[3], 12);
 
     // Un pequeño giro estable por día evita que siempre suenen las mismas
     // canciones, sin cambiar la cola mientras se está escuchando.
     final random = math.Random(seed.id.hashCode ^ DateTime.now().day);
     related.shuffle(random);
     artist.shuffle(random);
+    taste.shuffle(random);
 
-    final pools = [album, related, artist];
-    final indices = [0, 0, 0];
-    final seen = <String>{...excluded};
+    final pools = [album, related, artist, taste];
+    final indices = [0, 0, 0, 0];
     final artistCounts = <String, int>{};
     final result = <SongModel>[];
 
     bool addFrom(int pool) {
       while (indices[pool] < pools[pool].length) {
         final song = pools[pool][indices[pool]++];
-        if (song.id.isEmpty || !seen.add(song.id)) continue;
+        if (song.id.isEmpty) continue;
         final artistKey = song.artists.isEmpty
             ? ''
             : song.artists.first.trim().toLowerCase();
@@ -705,36 +744,39 @@ class YtService {
       return false;
     }
 
-    // Relacionadas primero, con apariciones medidas del álbum y del artista.
+    // Relacionadas y gustos primero, con apariciones medidas del álbum y del
+    // artista para que ninguna fuente domine la cola.
     const pattern = [
       1,
+      3,
       1,
       2,
       1,
+      3,
       0,
       1,
       2,
-      1,
-      0,
-      1,
-      2,
+      3,
       1,
       1,
       0,
-      1,
+      3,
       2,
       1,
       1,
+      3,
       0,
       1,
       2,
+      3,
+      1,
       1,
     ];
     for (final pool in pattern) {
       if (result.length >= limit) break;
       addFrom(pool);
     }
-    for (final pool in [1, 2, 0]) {
+    for (final pool in [1, 3, 2, 0]) {
       while (result.length < limit && addFrom(pool)) {}
     }
     return result;
@@ -777,15 +819,27 @@ class YtService {
     }
   }
 
-  List<SongModel> _uniqueSongs(
-    Iterable<SongModel> songs,
-    Set<String> excluded,
-  ) {
-    final seen = <String>{...excluded};
+  /// Radio de los artistas que más escucha el usuario. Se usa como fuente de
+  /// gustos para que la cola no dependa solo de la canción actual.
+  Future<List<SongModel>> _safeTasteSongs(List<String> artistIds) async {
+    if (artistIds.isEmpty) return const [];
+    final batches = await Future.wait<List<SongModel>>(
+      artistIds.map(
+        (id) => getArtistRadioSongs(id, limit: 14)
+            .timeout(
+              const Duration(seconds: 8),
+              onTimeout: () => const <SongModel>[],
+            )
+            .catchError((_) => const <SongModel>[]),
+      ),
+    );
+    final seen = <String>{};
     final result = <SongModel>[];
-    for (final song in songs) {
-      if (song.id.isEmpty || !seen.add(song.id)) continue;
-      result.add(song);
+    for (final batch in batches) {
+      for (final song in batch) {
+        if (song.id.isEmpty || !seen.add(song.id)) continue;
+        result.add(song);
+      }
     }
     return result;
   }

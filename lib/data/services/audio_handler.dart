@@ -16,6 +16,7 @@ import '../models/song_model.dart';
 import '../repositories/music_repository.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/artwork_url.dart';
+import '../../core/utils/song_variant_utils.dart';
 import 'download_service.dart';
 import 'listening_stats_service.dart';
 
@@ -94,7 +95,7 @@ class MusicAudioHandler extends BaseAudioHandler
   void _reloadCrossfadeSettings() {
     _crossfadeEnabledCache =
         _settings.get(AppConstants.crossfadeEnabledKey, defaultValue: false) ==
-            true;
+        true;
     final seconds = _settings.get(
       AppConstants.crossfadeSecondsKey,
       defaultValue: 3,
@@ -105,7 +106,10 @@ class MusicAudioHandler extends BaseAudioHandler
 
   void _startTicker() {
     _ticker?.cancel();
-    _ticker = Timer.periodic(const Duration(milliseconds: 750), (_) => _onTick());
+    _ticker = Timer.periodic(
+      const Duration(milliseconds: 750),
+      (_) => _onTick(),
+    );
   }
 
   void _stopTicker() {
@@ -205,19 +209,36 @@ class MusicAudioHandler extends BaseAudioHandler
   List<SongModel> get queueSongs => List.unmodifiable(_queueSongs);
   bool get hasNext =>
       _currentIndex >= 0 &&
-      (_currentIndex < _queueSongs.length - 1 ||
+      (_nextPlayableIndex() != null ||
           _repeatMode == AudioServiceRepeatMode.all ||
           autoPlayRelated);
   bool get hasPrevious => _currentIndex > 0;
 
-  /// Si al pulsar siguiente en el último elemento se usará la cola
-  /// inteligente (autoPlayRelated). Útil para el tooltip del botón.
+  /// Si al pulsar siguiente se usará la cola inteligente (autoPlayRelated).
+  /// También es true cuando las siguientes pistas son solo covers/versiones de
+  /// la canción actual y hay que buscar una canción distinta.
   bool get nextUsesSmartQueue =>
       autoPlayRelated &&
+      _repeatMode != AudioServiceRepeatMode.all &&
       _currentIndex >= 0 &&
       currentSong != null &&
-      _currentIndex >= _queueSongs.length - 1;
+      _nextPlayableIndex() == null;
   double get currentVolume => _active.volume;
+
+  /// Siguiente pista que no sea la misma canción ni una versión/cover de ella.
+  /// Devuelve null cuando la cola solo tiene variantes de la canción actual.
+  int? _nextPlayableIndex({int? start}) {
+    final reference = currentSong;
+    if (reference == null || _queueSongs.isEmpty) return null;
+    final from = start ?? _currentIndex + 1;
+    for (var index = from; index < _queueSongs.length; index++) {
+      final candidate = _queueSongs[index];
+      if (candidate.id == reference.id) continue;
+      if (isSameSongVariant(candidate, reference)) continue;
+      return index;
+    }
+    return null;
+  }
 
   /// Solo la intención explícita del usuario decide si el próximo cambio de
   /// canción debe seguir sonando. Así una pausa durante la carga no se pierde.
@@ -718,6 +739,7 @@ class MusicAudioHandler extends BaseAudioHandler
     final cache = repository.audioCache;
     if (cache == null) return;
     final requestId = _playRequestId;
+    final current = currentSong;
     try {
       for (
         var offset = 1;
@@ -725,6 +747,7 @@ class MusicAudioHandler extends BaseAudioHandler
         offset++
       ) {
         final song = _queueSongs[_currentIndex + offset];
+        if (current != null && isSameSongVariant(song, current)) continue;
         if (downloads?.isDownloaded(song.id) == true ||
             cache.cachedFile(song.id) != null) {
           continue;
@@ -750,8 +773,9 @@ class MusicAudioHandler extends BaseAudioHandler
       await _startPlayback(recordPlay: true);
       return;
     }
-    if (_currentIndex >= 0 && _currentIndex < _queueSongs.length - 1) {
-      _currentIndex++;
+    final nextIndex = _nextPlayableIndex();
+    if (nextIndex != null) {
+      _currentIndex = nextIndex;
       await _loadCurrent(autoPlay: true);
       return;
     }
@@ -763,9 +787,12 @@ class MusicAudioHandler extends BaseAudioHandler
     if (autoPlayRelated && currentSong != null) {
       final added = await _ensureSmartQueue(currentSong!, force: true);
       if (added) {
-        _currentIndex++;
-        await _loadCurrent(autoPlay: true);
-        return;
+        final smartNext = _nextPlayableIndex();
+        if (smartNext != null) {
+          _currentIndex = smartNext;
+          await _loadCurrent(autoPlay: true);
+          return;
+        }
       }
     }
     _playIntent = false;
@@ -799,21 +826,48 @@ class MusicAudioHandler extends BaseAudioHandler
     final requestId = _playRequestId;
     final existing = _queueSongs.map((song) => song.id).toSet();
     final recent = <String>{};
+    final recentSongs = <SongModel>[];
     final box = history;
     if (box != null) {
       try {
         final entries = box.values.whereType<Map>().toList().reversed.take(14);
         for (final entry in entries) {
-          final id = '${entry['id'] ?? entry['videoId'] ?? ''}';
-          if (id.isNotEmpty) recent.add(id);
+          try {
+            final song = SongModel.fromJson(Map<String, dynamic>.from(entry));
+            final id = song.id.isNotEmpty
+                ? song.id
+                : '${entry['id'] ?? entry['videoId'] ?? ''}';
+            if (id.isEmpty) continue;
+            recent.add(id);
+            if (song.id.isNotEmpty) recentSongs.add(song);
+          } catch (_) {
+            final id = '${entry['id'] ?? entry['videoId'] ?? ''}';
+            if (id.isNotEmpty) recent.add(id);
+          }
         }
       } catch (_) {}
     }
+
+    final recentTitles = recentSongs
+        .map((song) => songTitleKey(song.title))
+        .where((key) => key.isNotEmpty)
+        .toSet();
+    final queueTitles = _queueSongs
+        .map((song) => songTitleKey(song.title))
+        .where((key) => key.isNotEmpty)
+        .toSet();
+    final seedTitle = songTitleKey(seed.title);
 
     try {
       final additions = await repository.yt.getSmartQueue(
         seed,
         excludeIds: {...existing, ...recent},
+        excludeTitleKeys: {
+          ...queueTitles,
+          ...recentTitles,
+          if (seedTitle.isNotEmpty) seedTitle,
+        },
+        preferredArtistIds: _preferredArtistIds(seed),
         limit: 24,
       );
       if (additions.isEmpty) return false;
@@ -821,9 +875,20 @@ class MusicAudioHandler extends BaseAudioHandler
 
       // La cola pudo cambiar mientras se resolvían las recomendaciones.
       final currentIds = _queueSongs.map((song) => song.id).toSet();
-      final unique = additions
-          .where((song) => !currentIds.contains(song.id))
-          .toList();
+      final currentTitles = _queueSongs
+          .map((song) => songTitleKey(song.title))
+          .where((key) => key.isNotEmpty)
+          .toSet();
+      final unique = filterSongVariants(
+        additions,
+        excludeIds: currentIds,
+        excludeTitleKeys: {
+          ...currentTitles,
+          ...recentTitles,
+          if (seedTitle.isNotEmpty) seedTitle,
+        },
+        reference: seed,
+      );
       if (unique.isEmpty) return false;
 
       _queueSongs.addAll(unique);
@@ -836,6 +901,72 @@ class MusicAudioHandler extends BaseAudioHandler
       // Las recomendaciones nunca deben romper la reproducción actual.
       return false;
     }
+  }
+
+  /// Artistas afines según las estadísticas locales. Se excluye al artista de
+  /// la canción actual porque su catálogo ya se consulta por separado.
+  List<String> _preferredArtistIds(SongModel seed) {
+    final result = <String>[];
+    final seedArtists = seed.artistIds?.toSet() ?? const <String>{};
+
+    void add(String? id) {
+      if (id == null || id.isEmpty) return;
+      if (seedArtists.contains(id) || result.contains(id)) return;
+      result.add(id);
+    }
+
+    try {
+      final snapshot = stats?.snapshot();
+      if (snapshot != null) {
+        final idsByName = <String, String>{};
+        for (final stat in snapshot.topSongs) {
+          final names = stat.song.artists;
+          final ids = stat.song.artistIds ?? const <String>[];
+          for (
+            var index = 0;
+            index < names.length && index < ids.length;
+            index++
+          ) {
+            idsByName.putIfAbsent(names[index], () => ids[index]);
+          }
+        }
+        for (final artist in snapshot.topArtists) {
+          add(idsByName[artist.name]);
+          if (result.length >= 2) break;
+        }
+        if (result.length < 2) {
+          for (final stat in snapshot.topSongs) {
+            for (final id in stat.song.artistIds ?? const <String>[]) {
+              add(id);
+              if (result.length >= 2) break;
+            }
+            if (result.length >= 2) break;
+          }
+        }
+      }
+
+      if (result.length < 2) {
+        final box = history;
+        if (box != null) {
+          final entries = box.values.whereType<Map>().toList().reversed.take(
+            30,
+          );
+          for (final entry in entries) {
+            try {
+              final song = SongModel.fromJson(Map<String, dynamic>.from(entry));
+              for (final id in song.artistIds ?? const <String>[]) {
+                add(id);
+                if (result.length >= 2) break;
+              }
+            } catch (_) {}
+            if (result.length >= 2) break;
+          }
+        }
+      }
+    } catch (_) {
+      // Sin estadísticas se mantiene la cola basada en la canción actual.
+    }
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -854,6 +985,13 @@ class MusicAudioHandler extends BaseAudioHandler
       return;
     }
     final nextIndex = _currentIndex + 1;
+    final current = currentSong;
+    if (current != null &&
+        (_queueSongs[nextIndex].id == current.id ||
+            isSameSongVariant(_queueSongs[nextIndex], current))) {
+      _preparedNextIndex = null;
+      return;
+    }
     if (_preparedNextIndex == nextIndex) return;
     final duration = _active.duration;
     if (duration == null) return;
@@ -1414,8 +1552,9 @@ class MusicAudioHandler extends BaseAudioHandler
     if (_queueSongs.isEmpty || _currentIndex < 0) return;
     _cancelCrossfade(stopFading: true);
     unawaited(_flushListening());
-    if (_currentIndex < _queueSongs.length - 1) {
-      _currentIndex++;
+    final nextIndex = _nextPlayableIndex();
+    if (nextIndex != null) {
+      _currentIndex = nextIndex;
       await _loadCurrent(autoPlay: _shouldKeepPlaying);
     } else if (_repeatMode == AudioServiceRepeatMode.all) {
       _currentIndex = 0;
@@ -1423,8 +1562,11 @@ class MusicAudioHandler extends BaseAudioHandler
     } else if (autoPlayRelated && currentSong != null) {
       final added = await _ensureSmartQueue(currentSong!, force: true);
       if (added) {
-        _currentIndex++;
-        await _loadCurrent(autoPlay: _shouldKeepPlaying);
+        final smartNext = _nextPlayableIndex();
+        if (smartNext != null) {
+          _currentIndex = smartNext;
+          await _loadCurrent(autoPlay: _shouldKeepPlaying);
+        }
       }
     }
   }

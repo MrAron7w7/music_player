@@ -86,7 +86,7 @@ class HomeScreen extends ConsumerWidget {
               children: [
                 _reveal(const _GreetingHeader()),
                 if (offline) const _OfflineBanner(),
-                _reveal(const _RecentChips(), delay: 20),
+                //_reveal(const _RecentChips(), delay: 20),
                 _reveal(const _ContinueListeningSection(), delay: 40),
                 _reveal(const _DailyMixesSection(), delay: 60),
                 if (!offline) _reveal(const _TrendingSection(), delay: 100),
@@ -508,7 +508,7 @@ class _ForYouSection extends ConsumerWidget {
           children: [
             const SectionHeader(
               'Hecho para ti',
-              subtitle: 'Basado en tu historial y tus gustos',
+              subtitle: 'Basado en tu historial, favoritos y descargas',
               padding: EdgeInsets.fromLTRB(22, 28, 22, 12),
             ),
             HomeListError(
@@ -525,7 +525,7 @@ class _ForYouSection extends ConsumerWidget {
       children: [
         SectionHeader(
           'Hecho para ti',
-          subtitle: 'Basado en tu historial y tus gustos',
+          subtitle: 'Basado en tu historial, favoritos y descargas',
           action: 'Ver todo',
           onTap: () => context.push('/see-all/forYou'),
           padding: const EdgeInsets.fromLTRB(22, 28, 14, 12),

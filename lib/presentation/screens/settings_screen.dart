@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -130,9 +129,7 @@ class SettingsScreen extends ConsumerWidget {
       if (picked == null) return;
 
       final support = await getApplicationSupportDirectory();
-      final dir = Directory(
-        '${support.path}${Platform.pathSeparator}profile',
-      );
+      final dir = Directory('${support.path}${Platform.pathSeparator}profile');
       await dir.create(recursive: true);
       final destination = File(
         '${dir.path}${Platform.pathSeparator}'
@@ -166,10 +163,7 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _removeProfilePhoto(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
+  Future<void> _removeProfilePhoto(BuildContext context, WidgetRef ref) async {
     final settings = ref.read(localRepositoryProvider).settings;
     final previous = settings.get(AppConstants.profilePhotoKey);
     await settings.delete(AppConstants.profilePhotoKey);
@@ -181,9 +175,9 @@ class SettingsScreen extends ConsumerWidget {
     }
     ref.read(profilePhotoProvider.notifier).state = null;
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Foto de perfil eliminada')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Foto de perfil eliminada')));
     }
   }
 
@@ -367,46 +361,6 @@ class SettingsScreen extends ConsumerWidget {
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
-  Future<void> _reportProblem(BuildContext context) async {
-    final controller = TextEditingController();
-    final report = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Enviar comentarios'),
-        content: TextField(
-          controller: controller,
-          minLines: 3,
-          maxLines: 6,
-          decoration: const InputDecoration(
-            hintText: 'Cuéntanos qué ocurrió o qué podemos mejorar',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('Copiar informe'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (report == null || report.isEmpty || !context.mounted) return;
-    await Clipboard.setData(
-      ClipboardData(text: 'Simple Music · Comentarios\n$report'),
-    );
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Informe copiado al portapapeles')),
-      );
-    }
-  }
-
   Future<void> _selectCrossfadeSeconds(
     BuildContext context,
     WidgetRef ref,
@@ -541,7 +495,8 @@ class SettingsScreen extends ConsumerWidget {
                 _SettingsTile(
                   icon: Icons.auto_awesome_rounded,
                   title: 'Cola inteligente',
-                  subtitle: 'Álbum, relacionadas y más del artista',
+                  subtitle:
+                      'Relacionadas, tus gustos y sin repetir la misma canción',
                   trailing: Switch.adaptive(
                     value: ref.watch(autoPlayRelatedProvider),
                     onChanged: (enabled) async {
@@ -785,12 +740,6 @@ class SettingsScreen extends ConsumerWidget {
                   icon: Icons.music_note_rounded,
                   title: AppConfig.appName,
                   subtitle: 'Versión ${AppConfig.displayVersion}',
-                ),
-                _SettingsTile(
-                  icon: Icons.feedback_outlined,
-                  title: 'Reportar un problema',
-                  subtitle: 'Crear un informe para compartir',
-                  onTap: () => _reportProblem(context),
                 ),
               ],
             ),

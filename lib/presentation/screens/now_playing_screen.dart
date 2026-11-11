@@ -9,13 +9,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/utils/artwork_url.dart';
-import '../../core/utils/helpers.dart';
 import '../../data/models/song_model.dart';
 import '../../providers/downloads_providers.dart';
 import '../../providers/library_providers.dart';
 import '../../providers/music_providers.dart';
 import '../../providers/player_providers.dart';
-import '../../providers/settings_providers.dart';
 import '../widgets/album_art.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/lyrics_sheet.dart';
@@ -82,53 +80,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
       ),
     );
     if (mounted) setState(() => _lyricsOpen = false);
-  }
-
-  /// Abre el selector de velocidad de reproducción.
-  Future<void> _showSpeedSheet() async {
-    HapticFeedback.selectionClick();
-    final current = ref.read(playbackSpeedProvider);
-    final options = const <double>[0.5, 0.75, 1, 1.25, 1.5, 2];
-    final selected = await showModalBottomSheet<double>(
-      context: context,
-      useSafeArea: true,
-      builder: (sheetContext) {
-        final theme = Theme.of(sheetContext);
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const ListTile(title: Text('Velocidad de reproducción')),
-            ...options.map(
-              (option) => ListTile(
-                leading: Icon(
-                  Icons.check_circle_rounded,
-                  color: option == current ? theme.colorScheme.primary : null,
-                  size: 20,
-                ),
-                title: Text(
-                  '${option.toStringAsFixed(option == option.roundToDouble() ? 0 : 1)}x',
-                ),
-                onTap: () => Navigator.pop(sheetContext, option),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-    if (selected == null || !mounted) return;
-    final handler = ref.read(audioHandlerProvider);
-    await handler.setPlaybackSpeed(selected);
-    ref.read(playbackSpeedProvider.notifier).state = selected;
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${selected.toStringAsFixed(selected == selected.roundToDouble() ? 0 : 1)}x',
-          ),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
   }
 
   Future<void> _addToPlaylist(SongModel song) async {
@@ -651,83 +602,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     }
   }
 
-  Future<void> _showAudioOutput(String? bluetoothName) async {
-    final bluetooth = bluetoothName != null;
-    final displayName = bluetooth
-        ? (bluetoothName.trim().isEmpty ? 'Bluetooth' : bluetoothName.trim())
-        : 'Este dispositivo';
-    await showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        final colors = Theme.of(sheetContext).colorScheme;
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Salida de audio',
-                  style: Theme.of(sheetContext).textTheme.titleLarge
-                      ?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: colors.primary.withValues(alpha: .10),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        bluetooth
-                            ? Icons.bluetooth_audio_rounded
-                            : Icons.speaker_rounded,
-                        color: colors.primary,
-                        size: 28,
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              displayName,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 15,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              bluetooth
-                                  ? 'Conectado por Bluetooth'
-                                  : 'Altavoz o auriculares del dispositivo',
-                              style: TextStyle(
-                                color: colors.onSurfaceVariant,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (bluetooth)
-                        Icon(Icons.check_circle_rounded, color: colors.primary),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final song = ref.watch(
@@ -749,7 +623,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
         colors.primary;
     final isFavorite = ref.watch(isFavoriteProvider(song.id));
     final downloadEntry = ref.watch(downloadEntryForProvider(song.id));
-    final bluetooth = ref.watch(bluetoothAudioDeviceProvider);
     final processingState = ref.watch(
       playbackStateProvider.select(
         (state) => state.valueOrNull?.processingState,
@@ -759,25 +632,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
       playbackStateProvider.select((state) => state.valueOrNull?.errorMessage),
     );
     final immersiveBase = Color.lerp(const Color(0xFF080A0E), accent, .20)!;
-    final qualityName =
-        downloadEntry?.quality ??
-        ref.read(musicRepositoryProvider).quality.name;
-    final bitrate = switch (qualityName) {
-      'low' => 64,
-      'medium' => 128,
-      _ => 160,
-    };
-    final estimatedBytes =
-        downloadEntry?.bytes ??
-        ((song.duration?.inSeconds ?? 0) * bitrate * 1000 / 8).round();
-    final qualityLabel = [
-      'WEBM',
-      '$bitrate kbps',
-      if (estimatedBytes > 0) formatBytes(estimatedBytes),
-    ].join(' • ');
-    final speed = ref.watch(playbackSpeedProvider);
-    final speedText =
-        '${speed.toStringAsFixed(speed == speed.roundToDouble() ? 0 : 1)}x';
     final isError = processingState == AudioProcessingState.error;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -837,44 +691,43 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 child: Column(
                   children: [
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 2, 10, 0),
+                      padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
                       child: Row(
                         children: [
-                          IconButton(
+                          _GlassIconButton(
                             tooltip: 'Minimizar',
+                            icon: Icons.keyboard_arrow_down_rounded,
+                            iconSize: 27,
                             onPressed: () => Navigator.maybePop(context),
-                            icon: const Icon(
-                              Icons.keyboard_arrow_down_rounded,
-                              size: 34,
-                              color: Colors.white,
-                            ),
                           ),
                           Expanded(
                             child: Column(
                               children: [
                                 Text(
-                                  'REPRODUCIENDO AHORA',
+                                  'REPRODUCIENDO',
                                   style: theme.textTheme.labelSmall?.copyWith(
-                                    letterSpacing: 1.8,
+                                    letterSpacing: 2.4,
+                                    fontSize: 10,
                                     fontWeight: FontWeight.w700,
-                                    color: Colors.white.withValues(alpha: .56),
+                                    color: Colors.white.withValues(alpha: .52),
                                   ),
                                 ),
-                                const SizedBox(height: 3),
+                                const SizedBox(height: 4),
                                 Text(
                                   song.album ?? 'Simple Music',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   textAlign: TextAlign.center,
                                   style: theme.textTheme.labelMedium?.copyWith(
-                                    color: Colors.white.withValues(alpha: .78),
+                                    color: Colors.white.withValues(alpha: .72),
                                     fontWeight: FontWeight.w500,
+                                    letterSpacing: .1,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(width: 48),
+                          const SizedBox(width: 44),
                         ],
                       ),
                     ),
@@ -931,30 +784,58 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                       child: Container(
                                         decoration: BoxDecoration(
                                           borderRadius: BorderRadius.circular(
-                                            30,
+                                            32,
                                           ),
                                           boxShadow: [
                                             BoxShadow(
                                               color: Colors.black.withValues(
-                                                alpha: .55,
+                                                alpha: .52,
                                               ),
-                                              blurRadius: 54,
-                                              spreadRadius: -6,
-                                              offset: const Offset(0, 30),
+                                              blurRadius: 60,
+                                              spreadRadius: -8,
+                                              offset: const Offset(0, 32),
+                                            ),
+                                            BoxShadow(
+                                              color: accent.withValues(
+                                                alpha: .18,
+                                              ),
+                                              blurRadius: 44,
+                                              spreadRadius: -14,
+                                              offset: const Offset(0, 18),
                                             ),
                                           ],
                                         ),
-                                        child: AlbumArt(
-                                          url: song.artworkUrl,
-                                          fallbackUrl: song.thumbnailUrl,
-                                          size: artSize,
-                                          radius: 30,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(1),
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(
+                                              32,
+                                            ),
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: [
+                                                Colors.white.withValues(
+                                                  alpha: .28,
+                                                ),
+                                                Colors.white.withValues(
+                                                  alpha: .04,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          child: AlbumArt(
+                                            url: song.artworkUrl,
+                                            fallbackUrl: song.thumbnailUrl,
+                                            size: artSize,
+                                            radius: 31,
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
                                 ),
-                                const SizedBox(height: 24),
+                                const SizedBox(height: 26),
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -988,89 +869,100 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                                   .headlineSmall
                                                   ?.copyWith(
                                                     color: Colors.white,
-                                                    fontSize: 28,
-                                                    height: 1.12,
+                                                    fontSize: 27,
+                                                    height: 1.14,
                                                     fontWeight: FontWeight.w800,
                                                     letterSpacing: -1,
                                                   ),
                                             ),
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              song.artists.join(', '),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: theme.textTheme.titleMedium
-                                                  ?.copyWith(
-                                                    color: Colors.white
-                                                        .withValues(alpha: .70),
-                                                    fontWeight: FontWeight.w500,
+                                            const SizedBox(height: 8),
+                                            Row(
+                                              children: [
+                                                Flexible(
+                                                  child: Text(
+                                                    song.artists.join(', '),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: theme
+                                                        .textTheme
+                                                        .titleMedium
+                                                        ?.copyWith(
+                                                          color: Colors.white
+                                                              .withValues(
+                                                                alpha: .68,
+                                                              ),
+                                                          fontWeight:
+                                                              FontWeight.w500,
+                                                        ),
                                                   ),
+                                                ),
+                                                if (downloadEntry != null) ...[
+                                                  const SizedBox(width: 8),
+                                                  const _OfflineBadge(),
+                                                ],
+                                              ],
                                             ),
                                           ],
                                         ),
                                       ),
                                     ),
-                                    IconButton(
+                                    const SizedBox(width: 6),
+                                    _GlassIconButton(
                                       tooltip: isFavorite
                                           ? 'Quitar de favoritos'
                                           : 'Añadir a favoritos',
+                                      icon: isFavorite
+                                          ? Icons.favorite_rounded
+                                          : Icons.favorite_border_rounded,
+                                      iconColor: isFavorite
+                                          ? const Color(0xFFFF5C8A)
+                                          : null,
+                                      active: isFavorite,
+                                      size: 42,
+                                      iconSize: 22,
                                       onPressed: () => _toggleFavorite(song),
-                                      icon: AnimatedSwitcher(
-                                        duration: const Duration(
-                                          milliseconds: 180,
-                                        ),
-                                        transitionBuilder: (child, animation) =>
-                                            ScaleTransition(
-                                              scale: animation,
-                                              child: child,
-                                            ),
-                                        child: Icon(
-                                          isFavorite
-                                              ? Icons.favorite_rounded
-                                              : Icons.favorite_border_rounded,
-                                          key: ValueKey(isFavorite),
-                                          color: isFavorite
-                                              ? const Color(0xFFFF5C8A)
-                                              : Colors.white,
-                                          size: 27,
-                                        ),
-                                      ),
                                     ),
-                                    IconButton(
+                                    const SizedBox(width: 2),
+                                    _GlassIconButton(
                                       tooltip: 'Más opciones',
+                                      icon: Icons.more_horiz_rounded,
+                                      size: 42,
+                                      iconSize: 24,
                                       onPressed: () => _showMore(song),
-                                      icon: const Icon(
-                                        Icons.more_horiz_rounded,
-                                        color: Colors.white,
-                                        size: 29,
-                                      ),
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 14),
+                                const SizedBox(height: 16),
                                 PlayerSeekBar(
                                   fallbackDuration: song.duration,
                                   foregroundColor: Colors.white,
                                 ),
-                                const SizedBox(height: 4),
-                                _DownloadAwareQualityBadge(
-                                  songId: song.id,
-                                  label: qualityLabel,
-                                ),
-                                const SizedBox(height: 16),
+                                const SizedBox(height: 12),
                                 const PlayerControls(
                                   foregroundColor: Colors.white,
                                 ),
-                                const SizedBox(height: 24),
-                                _PlayerActionsBar(
-                                  lyricsOpen: _lyricsOpen,
-                                  bluetoothName: bluetooth?.name,
-                                  speed: speedText,
-                                  onLyrics: () => _showLyrics(song),
-                                  onQueue: () => _showQueue(),
-                                  onAudioOutput: () =>
-                                      _showAudioOutput(bluetooth?.name),
-                                  onSpeed: _showSpeedSheet,
+                                const SizedBox(height: 26),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    _GlassIconButton(
+                                      tooltip: 'Letras',
+                                      icon: Icons.lyrics_rounded,
+                                      active: _lyricsOpen,
+                                      size: 52,
+                                      iconSize: 24,
+                                      onPressed: () => _showLyrics(song),
+                                    ),
+                                    _GlassIconButton(
+                                      tooltip: 'Cola de reproducción',
+                                      icon: Icons.queue_music_rounded,
+                                      size: 52,
+                                      iconSize: 25,
+                                      onPressed: _showQueue,
+                                    ),
+                                  ],
                                 ),
                                 if (isError)
                                   Padding(
@@ -1138,41 +1030,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   }
 }
 
-class _DownloadAwareQualityBadge extends ConsumerWidget {
-  const _DownloadAwareQualityBadge({required this.songId, required this.label});
-
-  final String songId;
-  final String label;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final progress = ref.watch(downloadProgressForProvider(songId));
-    return _QualityBadge(
-      label: label,
-      downloading: progress != null && progress < 1,
-      progress: progress,
-    );
-  }
-}
-
-class _QualityBadge extends StatelessWidget {
-  const _QualityBadge({
-    required this.label,
-    required this.downloading,
-    required this.progress,
-  });
-
-  final String label;
-  final bool downloading;
-  final double? progress;
+class _OfflineBadge extends StatelessWidget {
+  const _OfflineBadge();
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return Tooltip(
+      message: 'Disponible sin conexión',
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: .08),
+          color: Colors.white.withValues(alpha: .10),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: Colors.white.withValues(alpha: .10)),
         ),
@@ -1180,41 +1048,20 @@ class _QualityBadge extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.graphic_eq_rounded,
-              size: 14,
-              color: Colors.white.withValues(alpha: .62),
+              Icons.offline_pin_rounded,
+              size: 12,
+              color: Colors.white.withValues(alpha: .74),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             Text(
-              label,
+              'Sin conexión',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: .64),
-                fontSize: 11.5,
+                color: Colors.white.withValues(alpha: .68),
+                fontSize: 10,
                 fontWeight: FontWeight.w600,
-                letterSpacing: .2,
+                letterSpacing: .1,
               ),
             ),
-            if (downloading) ...[
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(
-                  value: progress,
-                  strokeWidth: 1.8,
-                  color: Colors.white.withValues(alpha: .80),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '${((progress ?? 0) * 100).round()}%',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: .70),
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
           ],
         ),
       ),
@@ -1222,131 +1069,66 @@ class _QualityBadge extends StatelessWidget {
   }
 }
 
-class _PlayerActionsBar extends StatelessWidget {
-  const _PlayerActionsBar({
-    required this.lyricsOpen,
-    required this.bluetoothName,
-    required this.speed,
-    required this.onLyrics,
-    required this.onQueue,
-    required this.onAudioOutput,
-    required this.onSpeed,
-  });
-
-  final bool lyricsOpen;
-  final String? bluetoothName;
-  final String speed;
-  final VoidCallback onLyrics;
-  final VoidCallback onQueue;
-  final VoidCallback onAudioOutput;
-  final VoidCallback onSpeed;
-
-  @override
-  Widget build(BuildContext context) {
-    final bluetooth = bluetoothName != null;
-    final deviceLabel = bluetooth
-        ? ((bluetoothName?.trim().isEmpty ?? true)
-              ? 'Bluetooth'
-              : bluetoothName!.trim())
-        : 'Este dispositivo';
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: .07),
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: Colors.white.withValues(alpha: .10)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-      child: Row(
-        children: [
-          _PlayerAction(
-            icon: Icons.lyrics_outlined,
-            label: 'Letras',
-            active: lyricsOpen,
-            onPressed: onLyrics,
-          ),
-          _PlayerAction(
-            icon: Icons.queue_music_rounded,
-            label: 'Cola',
-            onPressed: onQueue,
-          ),
-          _PlayerAction(
-            icon: bluetooth
-                ? Icons.bluetooth_audio_rounded
-                : Icons.speaker_rounded,
-            label: deviceLabel,
-            active: bluetooth,
-            onPressed: onAudioOutput,
-          ),
-          _PlayerAction(
-            icon: Icons.speed_rounded,
-            label: speed,
-            onPressed: onSpeed,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlayerAction extends StatelessWidget {
-  const _PlayerAction({
+class _GlassIconButton extends StatelessWidget {
+  const _GlassIconButton({
+    required this.tooltip,
     required this.icon,
-    required this.label,
     required this.onPressed,
     this.active = false,
+    this.iconColor,
+    this.size = 44,
+    this.iconSize = 22,
   });
 
+  final String tooltip;
   final IconData icon;
-  final String label;
   final VoidCallback onPressed;
   final bool active;
+  final Color? iconColor;
+  final double size;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Expanded(
+    return Tooltip(
+      message: tooltip,
       child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.white.withValues(alpha: active ? .17 : .08),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          customBorder: const CircleBorder(),
           onTap: () {
             HapticFeedback.selectionClick();
             onPressed();
           },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 2),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: active
-                        ? Colors.white.withValues(alpha: .16)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(
-                    icon,
-                    size: 22,
-                    color: Colors.white.withValues(alpha: active ? 1 : .82),
-                  ),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white.withValues(alpha: active ? .18 : .10),
+              ),
+            ),
+            child: Center(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                transitionBuilder: (child, animation) => ScaleTransition(
+                  scale: animation,
+                  child: FadeTransition(opacity: animation, child: child),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white.withValues(alpha: active ? .95 : .62),
-                  ),
+                child: Icon(
+                  icon,
+                  key: ValueKey(icon),
+                  size: iconSize,
+                  color:
+                      iconColor ??
+                      Colors.white.withValues(alpha: active ? 1 : .84),
                 ),
-              ],
+              ),
             ),
           ),
         ),

@@ -515,28 +515,12 @@ class MusicAudioHandler extends BaseAudioHandler
     playbackState.add(
       playbackState.value.copyWith(
         controls: [
-          MediaControl.custom(
-            androidIcon: _shuffleMode == AudioServiceShuffleMode.all
-                ? 'drawable/ic_shuffle_on'
-                : 'drawable/ic_shuffle',
-            label: 'Aleatorio',
-            name: 'toggleShuffle',
-          ),
           MediaControl.skipToPrevious,
           playing ? MediaControl.pause : MediaControl.play,
           MediaControl.skipToNext,
-          MediaControl.custom(
-            androidIcon: _isFavorite(currentSong)
-                ? 'drawable/ic_favorite'
-                : 'drawable/ic_favorite_border',
-            label: _isFavorite(currentSong)
-                ? 'Quitar de favoritos'
-                : 'Añadir a favoritos',
-            name: 'toggleFavorite',
-          ),
         ],
         systemActions: const {MediaAction.seek},
-        androidCompactActionIndices: const [1, 2, 3],
+        androidCompactActionIndices: const [0, 1, 2],
         processingState: processing,
         playing: playing,
         updatePosition: _needsLoad ? _resumePosition : _active.position,
@@ -549,36 +533,6 @@ class MusicAudioHandler extends BaseAudioHandler
         errorMessage: _errorMessage,
       ),
     );
-  }
-
-  bool _isFavorite(SongModel? song) =>
-      song != null && (favorites?.containsKey(song.id) ?? false);
-
-  @override
-  Future<dynamic> customAction(
-    String name, [
-    Map<String, dynamic>? extras,
-  ]) async {
-    switch (name) {
-      case 'toggleShuffle':
-        await setShuffleMode(
-          _shuffleMode == AudioServiceShuffleMode.all
-              ? AudioServiceShuffleMode.none
-              : AudioServiceShuffleMode.all,
-        );
-      case 'toggleFavorite':
-        final song = currentSong;
-        final box = favorites;
-        if (song != null && box != null) {
-          if (box.containsKey(song.id)) {
-            await box.delete(song.id);
-          } else {
-            await box.put(song.id, song.toJson());
-          }
-          _broadcastState(force: true);
-        }
-    }
-    return null;
   }
 
   void _publishPlaybackError(Object error, {String? message}) {

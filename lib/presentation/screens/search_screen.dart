@@ -15,8 +15,7 @@ import '../../providers/downloads_providers.dart';
 import '../../providers/explore_providers.dart';
 import '../../providers/followed_artists_providers.dart';
 import '../../providers/library_providers.dart';
-import '../../providers/music_providers.dart'
-    hide searchSongsProvider, searchAlbumsProvider, searchArtistsProvider;
+import '../../providers/music_providers.dart';
 import '../../providers/navigation_providers.dart';
 import '../../providers/network_providers.dart';
 import '../../providers/player_providers.dart';
@@ -388,6 +387,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         .map((genre) => genre.title)
         .toList();
     final suggestions = ref.watch(searchSuggestionsProvider(_query));
+    final spellingSuggestion = ref.watch(spellingSuggestionProvider(_query));
+    final ignoreSpelling = ref.watch(ignoreSpellingProvider);
     final showSuggestions =
         filters.scope != SearchScope.lyrics &&
         (_showSuggestions || _query.isEmpty);
@@ -456,11 +457,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
               ),
             if (filters.scope != SearchScope.lyrics &&
                 !showSuggestions &&
-                ref.watch(spellingSuggestionProvider(_query)) != null &&
-                !ref.watch(ignoreSpellingProvider) &&
+                spellingSuggestion != null &&
+                !ignoreSpelling &&
                 !offline)
               _SpellingBanner(
-                suggestion: ref.watch(spellingSuggestionProvider(_query))!,
+                suggestion: spellingSuggestion,
                 onAccept: (value) => _commit(value),
                 onSearchAnyway: () {
                   ref.read(ignoreSpellingProvider.notifier).state = true;
@@ -620,8 +621,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     final selection = ref.watch(searchSelectionProvider);
     Widget songTile(SongModel song, int index) => SongTile(
       song,
-      playQueue: result.songs,
-      startIndex: index,
       selectionMode: selection.selecting,
       selected: selection.songIds.contains(song.id),
       onSelect: () =>
@@ -798,8 +797,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           final song = songs[index];
           return SongTile(
             song,
-            playQueue: songs,
-            startIndex: index,
             selectionMode: selection.selecting,
             selected: selection.songIds.contains(song.id),
             onSelect: () =>
@@ -1141,8 +1138,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         widgets.add(
           SongTile(
             songs[index],
-            playQueue: songs,
-            startIndex: index,
             selectionMode: selection.selecting,
             selected: selection.songIds.contains(songs[index].id),
             onSelect: () => ref

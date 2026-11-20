@@ -30,14 +30,6 @@ class LocalRepository {
     }
   }
 
-  Future<void> addHistory(SongModel s) async {
-    await history.delete(s.id);
-    await history.put(s.id, s.toJson());
-    while (history.length > 100) {
-      await history.deleteAt(0);
-    }
-  }
-
   Future<void> removeFavorites(Iterable<String> ids) =>
       favorites.deleteAll(ids);
   Future<void> removeHistory(Iterable<String> ids) => history.deleteAll(ids);

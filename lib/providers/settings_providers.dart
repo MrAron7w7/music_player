@@ -53,6 +53,23 @@ final headsetAutoplayProvider = StateProvider<bool>(
           as bool,
 );
 
+final idleStopMinutesProvider = StateProvider<int>((ref) {
+  final value = ref
+      .watch(localRepositoryProvider)
+      .settings
+      .get('idleStopMinutes', defaultValue: 10);
+  return value is int ? value : 10;
+});
+
+final prefetchAudioProvider = StateProvider<bool>(
+  (ref) =>
+      ref
+          .watch(localRepositoryProvider)
+          .settings
+          .get('prefetchAudio', defaultValue: false) ==
+      true,
+);
+
 /// 0 significa "sin límite".
 final audioCacheLimitProvider = StateProvider<int>((ref) {
   final raw = ref
@@ -86,15 +103,6 @@ class CacheUsage {
   int get totalBytes => audioBytes + metadataBytes + coverBytes;
 }
 
-/// Velocidad de reproducción persistida (0.5x, 0.75x, 1x, 1.25x, 1.5x, 2x).
-final playbackSpeedProvider = StateProvider<double>((ref) {
-  final saved = ref
-      .watch(localRepositoryProvider)
-      .settings
-      .get(AppConstants.playbackSpeedKey);
-  return saved is num ? saved.toDouble().clamp(0.5, 2.0) : 1.0;
-});
-
 /// Ruta local de la foto de perfil elegida en Ajustes. `null` si no hay foto.
 final profilePhotoProvider = StateProvider<String?>((ref) {
   final saved = ref
@@ -118,10 +126,7 @@ final sortOrderProvider = StateProvider.family<String, String>((
     'downloads' => AppConstants.sortDownloadsKey,
     _ => AppConstants.sortFavoritesKey,
   };
-  final saved = ref
-      .watch(localRepositoryProvider)
-      .settings
-      .get(key);
+  final saved = ref.watch(localRepositoryProvider).settings.get(key);
   return saved is String ? saved : 'default';
 });
 

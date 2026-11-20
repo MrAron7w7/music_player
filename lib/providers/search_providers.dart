@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/utils/search_sort.dart';
+import '../core/utils/text_utils.dart';
 import '../data/models/album_model.dart';
 import '../data/models/artist_model.dart';
 import '../data/models/home_models.dart';
@@ -41,8 +42,6 @@ final searchFiltersProvider = StateProvider<SearchFilters>(
 
 final ignoreSpellingProvider = StateProvider<bool>((ref) => false);
 
-final suggestionsQueryProvider = StateProvider<String>((ref) => '');
-
 final localPlaysProvider = Provider<Map<String, int>>((ref) {
   final snapshot = ref.watch(statsProvider).valueOrNull;
   if (snapshot == null) return const {};
@@ -72,6 +71,8 @@ class SearchPageNotifier<T> extends StateNotifier<SearchPageState<T>> {
   SearchPageNotifier({
     required this.loadPage,
     required this.idOf,
+    this.loadNextPage,
+    this.hasNextPage,
     this.pageSize = 20,
     this.maxLimit = 100,
   }) : super(SearchPageState<T>()) {
@@ -80,6 +81,8 @@ class SearchPageNotifier<T> extends StateNotifier<SearchPageState<T>> {
 
   final Future<List<T>> Function(int limit) loadPage;
   final String Function(T item) idOf;
+  final Future<List<T>> Function()? loadNextPage;
+  final bool Function()? hasNextPage;
   final int pageSize;
   final int maxLimit;
 
@@ -95,7 +98,10 @@ class SearchPageNotifier<T> extends StateNotifier<SearchPageState<T>> {
         items: items.take(maxLimit).toList(),
         page: 0,
         loading: false,
-        hasMore: items.length >= pageSize && pageSize < maxLimit,
+        hasMore:
+            items.length < maxLimit &&
+            (hasNextPage?.call() ??
+                (items.length >= pageSize && pageSize < maxLimit)),
         requestId: request,
       );
     } catch (error) {
@@ -120,7 +126,9 @@ class SearchPageNotifier<T> extends StateNotifier<SearchPageState<T>> {
       requestId: request,
     );
     try {
-      final fetched = await loadPage(nextLimit);
+      final fetched = loadNextPage == null
+          ? await loadPage(nextLimit)
+          : await loadNextPage!();
       if (!mounted || request != _requestId) return;
       final existing = state.items.map(idOf).toSet();
       final newItems = <T>[];
@@ -133,9 +141,10 @@ class SearchPageNotifier<T> extends StateNotifier<SearchPageState<T>> {
         page: nextPage,
         loading: false,
         hasMore:
+            merged.length < maxLimit &&
             newItems.isNotEmpty &&
-            nextLimit < maxLimit &&
-            fetched.length >= nextLimit,
+            (hasNextPage?.call() ??
+                (nextLimit < maxLimit && fetched.length >= nextLimit)),
         requestId: request,
       );
     } catch (error) {
@@ -165,9 +174,21 @@ final searchSongsProvider = StateNotifierProvider.autoDispose
         idOf: (song) => song.id,
         loadPage: (limit) => ref
             .read(ytServiceProvider)
-            .searchSongs(
+            .searchSongsFirstPage(
               q,
               limit: limit,
+              ignoreSpelling: ref.read(ignoreSpellingProvider),
+            ),
+        loadNextPage: () => ref
+            .read(ytServiceProvider)
+            .searchSongsNextPage(
+              q,
+              ignoreSpelling: ref.read(ignoreSpellingProvider),
+            ),
+        hasNextPage: () => ref
+            .read(ytServiceProvider)
+            .hasMoreSongSearchResults(
+              q,
               ignoreSpelling: ref.read(ignoreSpellingProvider),
             ),
       );
@@ -614,7 +635,7 @@ final spellingSuggestionProvider = Provider.autoDispose.family<String?, String>(
     for (final suggestion in suggestions) {
       final candidate = suggestion.text.trim();
       if (candidate.isEmpty || candidate.toLowerCase() == normalized) continue;
-      final score = _similarity(normalized, candidate.toLowerCase());
+      final score = similarity(normalized, candidate.toLowerCase());
       if (score >= threshold && score > bestScore) {
         bestScore = score;
         best = candidate;
@@ -623,35 +644,6 @@ final spellingSuggestionProvider = Provider.autoDispose.family<String?, String>(
     return best;
   },
 );
-
-double _similarity(String a, String b) {
-  final maxLength = a.length > b.length ? a.length : b.length;
-  if (maxLength == 0) return 1;
-  return 1 - _levenshtein(a, b) / maxLength;
-}
-
-int _levenshtein(String a, String b) {
-  if (a.isEmpty) return b.length;
-  if (b.isEmpty) return a.length;
-  var previous = List<int>.generate(b.length + 1, (index) => index);
-  var current = List<int>.filled(b.length + 1, 0);
-  for (var i = 1; i <= a.length; i++) {
-    current[0] = i;
-    for (var j = 1; j <= b.length; j++) {
-      final cost = a.codeUnitAt(i - 1) == b.codeUnitAt(j - 1) ? 0 : 1;
-      final best = [
-        previous[j] + 1,
-        current[j - 1] + 1,
-        previous[j - 1] + cost,
-      ].reduce((left, right) => left < right ? left : right);
-      current[j] = best;
-    }
-    final swap = previous;
-    previous = current;
-    current = swap;
-  }
-  return previous[b.length];
-}
 
 /// Mezclas locales del inicio: redescubre y artistas top viven aquí porque
 /// dependen de estadísticas locales y no hacen red.

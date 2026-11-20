@@ -1,9 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../data/models/song_model.dart';
-import '../../providers/player_providers.dart';
 import 'album_art.dart';
 
 const homeCardWidth = 148.0;
@@ -25,92 +22,6 @@ class HomeArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       AlbumArt(url: url, size: size, radius: circular ? size / 2 : radius);
-}
-
-class HomeSongCard extends ConsumerWidget {
-  const HomeSongCard({
-    super.key,
-    required this.song,
-    required this.queue,
-    required this.index,
-    this.width = homeCardWidth,
-    this.onTap,
-  });
-
-  final SongModel song;
-  final List<SongModel> queue;
-  final int index;
-  final double width;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    void play() {
-      ref
-          .read(audioHandlerProvider)
-          .playSongs(queue, startIndex: index, shuffle: false);
-    }
-
-    return SizedBox(
-      width: width,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap ?? play,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                HomeArtwork(url: song.artworkUrl, size: width),
-                Positioned(
-                  right: 8,
-                  bottom: 8,
-                  child: Material(
-                    color: theme.colorScheme.primary,
-                    shape: const CircleBorder(),
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: play,
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Icon(
-                          Icons.play_arrow_rounded,
-                          size: 20,
-                          color: theme.colorScheme.onPrimary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              song.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                height: 1.2,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              song.artists.isEmpty
-                  ? 'Artista desconocido'
-                  : song.artists.join(', '),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: .8),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class HomeAlbumCard extends StatelessWidget {

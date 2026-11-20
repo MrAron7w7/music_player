@@ -155,22 +155,12 @@ final audioDevicesProvider = StreamProvider<Set<AudioDevice>>(
   (ref) => ref.watch(audioHandlerProvider).devicesStream,
 );
 
-/// Salida Bluetooth activa, si existe. Se usa para el indicador del reproductor.
-final bluetoothAudioDeviceProvider = Provider<AudioDevice?>((ref) {
-  final devices =
-      ref.watch(audioDevicesProvider).valueOrNull ?? const <AudioDevice>{};
-  for (final device in devices) {
-    if (!device.isOutput) continue;
-    if (device.type == AudioDeviceType.bluetoothA2dp ||
-        device.type == AudioDeviceType.bluetoothSco) {
-      return device;
-    }
-  }
-  return null;
-});
-
 final playbackErrorProvider = Provider<String?>(
   (ref) => ref.watch(playbackStateProvider).valueOrNull?.errorMessage,
+);
+
+final playbackNoticeProvider = StreamProvider.autoDispose<String>(
+  (ref) => ref.watch(audioHandlerProvider).playbackNotices,
 );
 
 final queueIndexProvider = Provider<int?>(

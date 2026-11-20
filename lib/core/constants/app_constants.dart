@@ -1,5 +1,4 @@
 class AppConstants {
-  static const appName = 'Simple Music';
   static const favoritesBox = 'favorites';
   static const playlistsBox = 'playlists';
   static const historyBox = 'history';

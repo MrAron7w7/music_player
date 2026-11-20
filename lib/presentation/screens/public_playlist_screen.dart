@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/models/public_playlist_model.dart';
 import '../../data/models/song_model.dart';
+import '../../data/models/public_playlist_model.dart';
 import '../../data/repositories/music_repository.dart' show AudioQuality;
+import '../../core/utils/extensions.dart';
 import '../../providers/downloads_providers.dart';
 import '../../providers/library_providers.dart';
 import '../../providers/player_providers.dart';
@@ -50,11 +51,7 @@ class _PublicPlaylistScreenState extends ConsumerState<PublicPlaylistScreen> {
                 onRetry: () =>
                     ref.invalidate(publicPlaylistProvider(widget.playlistId)),
               ),
-              const Positioned(
-                left: 4,
-                top: 4,
-                child: BackButton(),
-              ),
+              const Positioned(left: 4, top: 4, child: BackButton()),
             ],
           ),
         ),
@@ -71,9 +68,7 @@ class _PublicPlaylistScreenState extends ConsumerState<PublicPlaylistScreen> {
     final songs = page.songs;
     final filtered = _query.trim().isEmpty
         ? songs
-        : ref
-              .watch(localSearchServiceProvider)
-              .searchInSongs(songs, _query);
+        : ref.watch(localSearchServiceProvider).searchInSongs(songs, _query);
     final totalDuration = songs.fold<Duration>(
       Duration.zero,
       (total, song) => total + (song.duration ?? Duration.zero),
@@ -82,7 +77,7 @@ class _PublicPlaylistScreenState extends ConsumerState<PublicPlaylistScreen> {
       if (page.playlist.author != null && page.playlist.author!.isNotEmpty)
         page.playlist.author!,
       '${songs.length} canciones',
-      if (totalDuration > Duration.zero) _durationLabel(totalDuration),
+      if (totalDuration > Duration.zero) totalDuration.hoursMinutes,
     ].join(' · ');
 
     return CustomScrollView(
@@ -100,9 +95,7 @@ class _PublicPlaylistScreenState extends ConsumerState<PublicPlaylistScreen> {
             ),
           ],
           flexibleSpace: FlexibleSpaceBar(
-            background: _HeaderBackground(
-              imageUrl: page.playlist.thumbnailUrl,
-            ),
+            background: _HeaderBackground(imageUrl: page.playlist.thumbnailUrl),
           ),
         ),
         SliverToBoxAdapter(
@@ -225,8 +218,7 @@ class _PublicPlaylistScreenState extends ConsumerState<PublicPlaylistScreen> {
             child: EmptyState(
               icon: Icons.music_off_rounded,
               title: 'Playlist vacía o no disponible',
-              message:
-                  'YouTube Music puede haber limitado esta lista. Prueba con otra.',
+              message: 'YouTube Music puede haber limitado esta lista. Prueba con otra.',
               onRetry: () =>
                   ref.invalidate(publicPlaylistProvider(widget.playlistId)),
             ),
@@ -237,7 +229,8 @@ class _PublicPlaylistScreenState extends ConsumerState<PublicPlaylistScreen> {
             child: EmptyState(
               icon: Icons.search_off_rounded,
               title: 'Sin coincidencias',
-              message: 'Ninguna canción de esta playlist coincide con “$_query”.',
+              message:
+                  'Ninguna canción de esta playlist coincide con “$_query”.',
             ),
           )
         else
@@ -245,11 +238,7 @@ class _PublicPlaylistScreenState extends ConsumerState<PublicPlaylistScreen> {
             itemCount: filtered.length,
             itemBuilder: (context, index) {
               final song = filtered[index];
-              return SongTile(
-                song,
-                playQueue: filtered,
-                startIndex: index,
-              );
+              return SongTile(song, playQueue: filtered, startIndex: index);
             },
           ),
         const SliverToBoxAdapter(child: SizedBox(height: 110)),
@@ -265,7 +254,10 @@ class _PublicPlaylistScreenState extends ConsumerState<PublicPlaylistScreen> {
     );
   }
 
-  Future<void> _downloadSongs(BuildContext context, List<SongModel> songs) async {
+  Future<void> _downloadSongs(
+    BuildContext context,
+    List<SongModel> songs,
+  ) async {
     final quality = await _pickQuality(context);
     if (quality == null || !context.mounted) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -350,7 +342,9 @@ class _PublicPlaylistScreenState extends ConsumerState<PublicPlaylistScreen> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${additions.length} canciones añadidas a ${target.name}'),
+          content: Text(
+            '${additions.length} canciones añadidas a ${target.name}',
+          ),
         ),
       );
       return;
@@ -377,48 +371,38 @@ class _PublicPlaylistScreenState extends ConsumerState<PublicPlaylistScreen> {
   }
 }
 
-Future<AudioQuality?> _pickQuality(BuildContext context) => showModalBottomSheet<
-  AudioQuality
->(
-  context: context,
-  builder: (sheetContext) => SafeArea(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Padding(
-          padding: EdgeInsets.all(16),
-          child: Text(
-            'Calidad de descarga',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
+Future<AudioQuality?> _pickQuality(BuildContext context) =>
+    showModalBottomSheet<AudioQuality>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Calidad de descarga',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            for (final quality in AudioQuality.values)
+              ListTile(
+                leading: Icon(
+                  quality == AudioQuality.high
+                      ? Icons.hd_rounded
+                      : Icons.audio_file_rounded,
+                ),
+                title: Text(switch (quality) {
+                  AudioQuality.high => 'Alta',
+                  AudioQuality.medium => 'Media',
+                  AudioQuality.low => 'Baja',
+                }),
+                onTap: () => Navigator.pop(sheetContext, quality),
+              ),
+          ],
         ),
-        for (final quality in AudioQuality.values)
-          ListTile(
-            leading: Icon(
-              quality == AudioQuality.high
-                  ? Icons.hd_rounded
-                  : Icons.audio_file_rounded,
-            ),
-            title: Text(
-              switch (quality) {
-                AudioQuality.high => 'Alta',
-                AudioQuality.medium => 'Media',
-                AudioQuality.low => 'Baja',
-              },
-            ),
-            onTap: () => Navigator.pop(sheetContext, quality),
-          ),
-      ],
-    ),
-  ),
-);
-
-String _durationLabel(Duration duration) {
-  final hours = duration.inHours;
-  final minutes = duration.inMinutes.remainder(60);
-  if (hours > 0) return '$hours h $minutes min';
-  return '$minutes min';
-}
+      ),
+    );
 
 class _HeaderBackground extends StatelessWidget {
   const _HeaderBackground({this.imageUrl});
@@ -432,38 +416,22 @@ class _HeaderBackground extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         if (imageUrl != null)
-          Image.network(
-            imageUrl!,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+          Positioned.fill(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: AlbumArt(url: imageUrl, size: 512, radius: 0),
+            ),
           ),
         DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                colors.surface.withValues(alpha: .35),
-                colors.surface,
-              ],
+              colors: [colors.surface.withValues(alpha: .35), colors.surface],
             ),
           ),
         ),
       ],
     );
   }
-}
-
-/// Evita el warning de import no usado cuando el archivo se compila aislado.
-class PlaylistHeaderPreview extends StatelessWidget {
-  const PlaylistHeaderPreview({super.key, required this.playlist});
-
-  final PublicPlaylistModel playlist;
-
-  @override
-  Widget build(BuildContext context) => AlbumArt(
-    url: playlist.thumbnailUrl,
-    size: 120,
-    radius: 18,
-  );
 }

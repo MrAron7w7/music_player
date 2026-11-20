@@ -19,6 +19,8 @@ class AppCache {
 
   final Map<String, int> _categoryCounts = {};
   final Set<String> _loadedCategories = {};
+  int _estimatedBytesCache = 0;
+  bool _estimatedBytesKnown = false;
 
   T? get<T>(String key) {
     try {
@@ -27,6 +29,13 @@ class AppCache {
       final expiresAt = raw[_expiresKey];
       if (expiresAt is int &&
           DateTime.now().millisecondsSinceEpoch > expiresAt) {
+        if (_estimatedBytesKnown) {
+          _estimatedBytesCache =
+              (_estimatedBytesCache - _sizeOf(raw[_valueKey])).clamp(
+                0,
+                1 << 62,
+              );
+        }
         _box.delete(key);
         _forgetCategory(key);
         return null;
@@ -71,7 +80,8 @@ class AppCache {
   }
 
   /// Momento en que se guardó la entrada, o `null` si no existe.
-  DateTime? createdAt(String key) {    try {
+  DateTime? createdAt(String key) {
+    try {
       final raw = _box.get(key);
       if (raw is! Map) return null;
       final created = raw[_createdKey];
@@ -91,6 +101,11 @@ class AppCache {
     if (value == null) return;
     try {
       final existed = _box.containsKey(key);
+      final oldRaw = existed ? _box.get(key) : null;
+      if (_estimatedBytesKnown) {
+        final oldValue = oldRaw is Map ? oldRaw[_valueKey] : null;
+        _estimatedBytesCache += _sizeOf(value) - _sizeOf(oldValue);
+      }
       final now = DateTime.now();
       await _box.put(key, {
         _valueKey: value,
@@ -110,12 +125,14 @@ class AppCache {
 
       if ((_categoryCounts[label] ?? 0) > maxEntries) {
         _categoryCounts[label] = await _pruneCategory(prefix, maxEntries);
+        _estimatedBytesKnown = false;
       }
 
       if (_box.length > _globalMaxEntries) {
         await _pruneGlobal(_globalMaxEntries);
         _loadedCategories.clear();
         _categoryCounts.clear();
+        _estimatedBytesKnown = false;
       }
     } catch (error) {
       // La caché nunca debe interrumpir la reproducción ni la navegación.
@@ -126,6 +143,16 @@ class AppCache {
   Future<void> remove(String key) async {
     try {
       final existed = _box.containsKey(key);
+      if (existed && _estimatedBytesKnown) {
+        final raw = _box.get(key);
+        if (raw is Map) {
+          _estimatedBytesCache =
+              (_estimatedBytesCache - _sizeOf(raw[_valueKey])).clamp(
+                0,
+                1 << 62,
+              );
+        }
+      }
       await _box.delete(key);
       if (!existed) return;
       final label = _prefixOf(key) ?? '';
@@ -141,6 +168,8 @@ class AppCache {
   Future<void> clear() async {
     try {
       await _box.clear();
+      _estimatedBytesCache = 0;
+      _estimatedBytesKnown = true;
       _loadedCategories.clear();
       _categoryCounts.clear();
     } catch (error) {
@@ -161,6 +190,18 @@ class AppCache {
         .where((key) => key is String && key.startsWith('$prefix:'))
         .toList();
     try {
+      if (_estimatedBytesKnown) {
+        for (final key in keys) {
+          final raw = _box.get(key);
+          if (raw is Map) {
+            _estimatedBytesCache =
+                (_estimatedBytesCache - _sizeOf(raw[_valueKey])).clamp(
+                  0,
+                  1 << 62,
+                );
+          }
+        }
+      }
       await _box.deleteAll(keys);
       _loadedCategories.remove(prefix);
       _categoryCounts.remove(prefix);
@@ -171,17 +212,28 @@ class AppCache {
 
   /// Estimación del espacio que ocupan las respuestas guardadas.
   int estimatedBytes() {
+    if (_estimatedBytesKnown) return _estimatedBytesCache;
     var total = 0;
     for (final key in _box.keys) {
       final raw = _box.get(key);
       if (raw is Map) {
         final value = raw[_valueKey];
         try {
-          total += value.toString().length;
+          total += _sizeOf(value);
         } catch (_) {}
       }
     }
-    return total;
+    _estimatedBytesCache = total;
+    _estimatedBytesKnown = true;
+    return _estimatedBytesCache;
+  }
+
+  int _sizeOf(Object? value) {
+    try {
+      return value?.toString().length ?? 0;
+    } catch (_) {
+      return 0;
+    }
   }
 
   int get entryCount => _box.length;

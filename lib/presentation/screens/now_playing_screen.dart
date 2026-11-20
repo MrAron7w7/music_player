@@ -153,6 +153,12 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             ];
             final currentIndex =
                 ref.watch(queueIndexProvider) ?? handler.currentIndex;
+            final smartStart = handler.smartQueueStartIndex;
+            final smartBoundary = smartStart == null
+                ? -1
+                : filtered.indexWhere((entry) => entry.index >= smartStart);
+            final hasSmartHeader =
+                smartBoundary >= 0 && smartBoundary < filtered.length;
             final colors = Theme.of(context).colorScheme;
             final canClear = songs.isNotEmpty;
 
@@ -323,14 +329,46 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                           scrollController: controller,
                           buildDefaultDragHandles: false,
                           padding: const EdgeInsets.only(top: 6, bottom: 20),
-                          itemCount: filtered.length,
+                          itemCount: filtered.length + (hasSmartHeader ? 1 : 0),
                           // ignore: deprecated_member_use
                           onReorder: (oldIndex, newIndex) {
                             if (queueQuery.isNotEmpty) return;
-                            handler.moveSongInQueue(oldIndex, newIndex);
+                            final adjustedOld =
+                                hasSmartHeader && oldIndex > smartBoundary
+                                ? oldIndex - 1
+                                : oldIndex;
+                            final adjustedNew =
+                                hasSmartHeader && newIndex > smartBoundary
+                                ? newIndex - 1
+                                : newIndex;
+                            handler.moveSongInQueue(adjustedOld, adjustedNew);
                           },
                           itemBuilder: (context, index) {
-                            final entry = filtered[index];
+                            if (hasSmartHeader && index == smartBoundary) {
+                              return Container(
+                                key: const ValueKey('smart-queue-header'),
+                                alignment: Alignment.centerLeft,
+                                padding: const EdgeInsets.fromLTRB(
+                                  20,
+                                  16,
+                                  20,
+                                  8,
+                                ),
+                                child: Text(
+                                  'Siguiente: recomendadas',
+                                  style: Theme.of(context).textTheme.labelLarge
+                                      ?.copyWith(
+                                        color: colors.primary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
+                              );
+                            }
+                            final rowIndex =
+                                hasSmartHeader && index > smartBoundary
+                                ? index - 1
+                                : index;
+                            final entry = filtered[rowIndex];
                             final song = entry.song;
                             final originalIndex = entry.index;
                             final active = currentIndex == originalIndex;

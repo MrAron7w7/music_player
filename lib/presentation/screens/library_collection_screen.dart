@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/extensions.dart';
 import '../../core/utils/notification_permissions.dart';
+import '../../core/utils/search_sort.dart' show sortCollectionSongs;
 import '../../data/models/playlist_model.dart';
 import '../../data/models/song_model.dart';
 import '../../providers/downloads_providers.dart';
@@ -193,27 +194,7 @@ class _LibraryCollectionScreenState
   /// Ordena una copia de las canciones según el criterio elegido por el
   /// usuario, sin modificar el orden de inserción original de la colección.
   List<SongModel> _sortSongs(List<SongModel> songs, String order) {
-    final result = List<SongModel>.from(songs);
-    switch (order) {
-      case 'title':
-        result.sort(
-          (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
-        );
-      case 'artist':
-        result.sort((a, b) {
-          final aa = a.artists.isNotEmpty ? a.artists.first.toLowerCase() : '';
-          final bb = b.artists.isNotEmpty ? b.artists.first.toLowerCase() : '';
-          return aa.compareTo(bb);
-        });
-      case 'duration':
-        result.sort((a, b) =>
-            (a.duration ?? Duration.zero).compareTo(b.duration ?? Duration.zero));
-      case 'default':
-      default:
-        // Mantiene el orden de inserción (más recientes primero).
-        break;
-    }
-    return result;
+    return sortCollectionSongs(songs, order);
   }
 
   String _sortLabel(String order) => switch (order) {

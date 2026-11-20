@@ -8,6 +8,32 @@ import 'text_utils.dart';
 int _compareNormalized(String a, String b) =>
     normalize(a).compareTo(normalize(b));
 
+/// Orden compartido de colecciones locales y descargas.
+List<SongModel> sortCollectionSongs(List<SongModel> songs, String order) {
+  final result = List<SongModel>.of(songs);
+  switch (order) {
+    case 'title':
+      result.sort((a, b) => _compareNormalized(a.title, b.title));
+    case 'artist':
+      result.sort(
+        (a, b) => _compareNormalized(
+          a.artists.firstOrNull ?? '',
+          b.artists.firstOrNull ?? '',
+        ),
+      );
+    case 'duration':
+      result.sort(
+        (a, b) => (a.duration ?? Duration.zero).compareTo(
+          b.duration ?? Duration.zero,
+        ),
+      );
+    case 'default':
+    default:
+      break;
+  }
+  return result;
+}
+
 List<SongModel> sortSongs(
   List<SongModel> songs,
   SearchSort sort, {
@@ -21,7 +47,9 @@ List<SongModel> sortSongs(
       final hasPlays = result.any((song) => (localPlays[song.id] ?? 0) > 0);
       if (!hasPlays) return result;
       result.sort((a, b) {
-        final byPlays = (localPlays[b.id] ?? 0).compareTo(localPlays[a.id] ?? 0);
+        final byPlays = (localPlays[b.id] ?? 0).compareTo(
+          localPlays[a.id] ?? 0,
+        );
         if (byPlays != 0) return byPlays;
         return _compareNormalized(a.title, b.title);
       });

@@ -9,6 +9,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/utils/extensions.dart';
 import '../../core/utils/helpers.dart';
 import '../../core/utils/notification_permissions.dart';
+import '../../core/utils/search_sort.dart' show sortCollectionSongs;
 import '../../data/models/song_model.dart';
 import '../../providers/downloads_providers.dart';
 import '../../providers/library_providers.dart';
@@ -18,34 +19,6 @@ import '../widgets/album_art.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/song_tile.dart';
 import '../../providers/settings_providers.dart';
-
-/// Ordena una copia de las canciones según el criterio elegido por el
-/// usuario, sin modificar el orden de inserción original.
-List<SongModel> _sortDownloadsSongs(List<SongModel> sortedSongs, String order) {
-  final result = List<SongModel>.from(sortedSongs);
-  switch (order) {
-    case 'title':
-      result.sort(
-        (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
-      );
-    case 'artist':
-      result.sort((a, b) {
-        final aa = a.artists.isNotEmpty ? a.artists.first.toLowerCase() : '';
-        final bb = b.artists.isNotEmpty ? b.artists.first.toLowerCase() : '';
-        return aa.compareTo(bb);
-      });
-    case 'duration':
-      result.sort(
-        (a, b) => (a.duration ?? Duration.zero).compareTo(
-          b.duration ?? Duration.zero,
-        ),
-      );
-    case 'default':
-    default:
-      break;
-  }
-  return result;
-}
 
 String _sortDownloadsLabel(String order) => switch (order) {
   'default' => 'Por defecto (recientes)',
@@ -148,7 +121,7 @@ class DownloadsScreen extends ConsumerWidget {
               .watch(localSearchServiceProvider)
               .searchInSongs(allSongs, searchQuery);
     final sortOrder = ref.watch(sortOrderProvider('downloads'));
-    final sortedSongs = _sortDownloadsSongs(rawSongs, sortOrder);
+    final sortedSongs = sortCollectionSongs(rawSongs, sortOrder);
     final currentSong = ref.watch(currentSongProvider).valueOrNull;
     final heroEntry =
         downloads

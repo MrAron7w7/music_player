@@ -20,12 +20,14 @@ class MainScaffold extends ConsumerStatefulWidget {
 }
 
 class _MainScaffoldState extends ConsumerState<MainScaffold> {
-  static const _pages = [
-    HomeScreen(),
-    SearchScreen(),
-    LibraryScreen(),
-    SettingsScreen(),
-  ];
+  final Set<int> _visitedTabs = {0};
+
+  Widget _pageFor(int index) => switch (index) {
+    0 => const HomeScreen(),
+    1 => const SearchScreen(),
+    2 => const LibraryScreen(),
+    _ => const SettingsScreen(),
+  };
 
   bool _navVisible = true;
   double _lastPixels = 0;
@@ -61,6 +63,7 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
     if (index == current) return;
     HapticFeedback.selectionClick();
     _lastPixels = 0;
+    if (_visitedTabs.add(index)) setState(() {});
     _setNavVisible(true);
     ref.read(selectedTabProvider.notifier).state = index;
   }
@@ -68,6 +71,13 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
   @override
   Widget build(BuildContext context) {
     final index = ref.watch(selectedTabProvider);
+    ref.listen(playbackNoticeProvider, (_, notice) {
+      final message = notice.valueOrNull;
+      if (message == null) return;
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    });
     final theme = Theme.of(context);
     final media = MediaQuery.of(context);
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -89,7 +99,15 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
           onNotification: _onScroll,
           child: SafeArea(
             bottom: false,
-            child: IndexedStack(index: index, children: _pages),
+            child: IndexedStack(
+              index: index,
+              children: [
+                for (var tab = 0; tab < 4; tab++)
+                  _visitedTabs.contains(tab)
+                      ? _pageFor(tab)
+                      : const SizedBox.shrink(),
+              ],
+            ),
           ),
         ),
         bottomNavigationBar: Padding(

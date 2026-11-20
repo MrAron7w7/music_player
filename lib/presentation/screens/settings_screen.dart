@@ -11,6 +11,7 @@ import '../../core/constants/app_config.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/notification_permissions.dart';
+import '../../core/utils/helpers.dart';
 import '../../data/repositories/music_repository.dart';
 import '../../data/services/update_service.dart';
 import '../../providers/cache_providers.dart';
@@ -350,17 +351,6 @@ class SettingsScreen extends ConsumerWidget {
         .showSnackBar(const SnackBar(content: Text('Descargas eliminadas')));
   }
 
-  static String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) {
-      return '${(bytes / 1024).toStringAsFixed(0)} KB';
-    }
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-  }
-
   Future<void> _selectCrossfadeSeconds(
     BuildContext context,
     WidgetRef ref,
@@ -394,11 +384,44 @@ class SettingsScreen extends ConsumerWidget {
         .put('crossfadeSeconds', selected);
   }
 
+  Future<void> _selectIdleStopMinutes(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    const options = [5, 10, 15, 30, 0];
+    final settings = ref.read(localRepositoryProvider).settings;
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(title: Text('Detener tras pausar')),
+            for (final minutes in options)
+              ListTile(
+                title: Text(minutes == 0 ? 'Nunca' : '$minutes minutos'),
+                trailing:
+                    settings.get('idleStopMinutes', defaultValue: 10) == minutes
+                    ? const Icon(Icons.check_rounded)
+                    : null,
+                onTap: () => Navigator.pop(sheetContext, minutes),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) {
+      ref.read(idleStopMinutesProvider.notifier).state = selected;
+      await settings.put('idleStopMinutes', selected);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final quality = ref.watch(audioQualityProvider);
     final crossfadeEnabled = ref.watch(crossfadeEnabledProvider);
     final crossfadeSeconds = ref.watch(crossfadeSecondsProvider);
+    final idleStopMinutes = ref.watch(idleStopMinutesProvider);
     final headsetAutoplay = ref.watch(headsetAutoplayProvider);
     final offlineMode = ref.watch(offlineModeProvider);
     final wifiOnly = ref.watch(wifiOnlyDownloadsProvider);
@@ -511,6 +534,30 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 _SettingsTile(
+                  icon: Icons.timer_off_outlined,
+                  title: 'Detener al quedar en pausa',
+                  subtitle: idleStopMinutes > 0
+                      ? 'Después de $idleStopMinutes minutos'
+                      : 'Nunca',
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _selectIdleStopMinutes(context, ref),
+                ),
+                _SettingsTile(
+                  icon: Icons.download_for_offline_outlined,
+                  title: 'Precarga de audio',
+                  subtitle: 'Hasta 2 canciones por adelantado, solo con Wi-Fi',
+                  trailing: Switch.adaptive(
+                    value: ref.watch(prefetchAudioProvider),
+                    onChanged: (enabled) async {
+                      ref.read(prefetchAudioProvider.notifier).state = enabled;
+                      await ref
+                          .read(localRepositoryProvider)
+                          .settings
+                          .put('prefetchAudio', enabled);
+                    },
+                  ),
+                ),
+                _SettingsTile(
                   icon: Icons.swap_horiz_rounded,
                   title: 'Crossfade',
                   subtitle: crossfadeEnabled
@@ -578,7 +625,7 @@ class SettingsScreen extends ConsumerWidget {
                   icon: Icons.sd_storage_outlined,
                   title: 'Espacio usado por descargas',
                   subtitle:
-                      '${downloads.length} canciones · ${_formatBytes(downloadBytes)}',
+                      '${downloads.length} canciones · ${formatBytes(downloadBytes)}',
                 ),
                 _SettingsTile(
                   icon: Icons.delete_outline_rounded,
@@ -596,7 +643,7 @@ class SettingsScreen extends ConsumerWidget {
                   title: 'Límite de caché de audio',
                   subtitle: cacheLimit == 0
                       ? 'Ilimitado'
-                      : _formatBytes(cacheLimit),
+                      : formatBytes(cacheLimit),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => _selectCacheLimit(context, ref),
                 ),
@@ -605,16 +652,16 @@ class SettingsScreen extends ConsumerWidget {
                   title: 'Uso actual',
                   subtitle: usage == null
                       ? 'Calculando…'
-                      : 'Audio ${_formatBytes(usage.audioBytes)} · '
-                            'Portadas ${_formatBytes(usage.coverBytes)} · '
-                            'Metadatos ${_formatBytes(usage.metadataBytes)}',
+                      : 'Audio ${formatBytes(usage.audioBytes)} · '
+                            'Portadas ${formatBytes(usage.coverBytes)} · '
+                            'Metadatos ${formatBytes(usage.metadataBytes)}',
                 ),
                 _SettingsTile(
                   icon: Icons.audio_file_outlined,
                   title: 'Borrar solo audio',
                   subtitle: usage == null
                       ? 'Archivos de reproducción reciente'
-                      : '${_formatBytes(usage.audioBytes)} en '
+                      : '${formatBytes(usage.audioBytes)} en '
                             '${usage.audioFiles} archivos',
                   onTap: () => _clearAudioCache(context, ref),
                 ),
@@ -623,7 +670,7 @@ class SettingsScreen extends ConsumerWidget {
                   title: 'Borrar solo portadas',
                   subtitle: usage == null
                       ? 'Imágenes de álbumes y playlists'
-                      : _formatBytes(usage.coverBytes),
+                      : formatBytes(usage.coverBytes),
                   onTap: () => _clearCovers(context, ref),
                 ),
                 _SettingsTile(
@@ -631,7 +678,7 @@ class SettingsScreen extends ConsumerWidget {
                   title: 'Borrar solo metadatos',
                   subtitle: usage == null
                       ? 'Búsquedas, letras y colores'
-                      : '${_formatBytes(usage.metadataBytes)} en '
+                      : '${formatBytes(usage.metadataBytes)} en '
                             '${usage.metadataEntries} entradas',
                   onTap: () => _clearMetadata(context, ref),
                 ),

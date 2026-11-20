@@ -5,6 +5,9 @@ import 'package:ytmusicapi_dart/ytmusicapi_dart.dart';
 import 'package:ytmusicapi_dart/enums.dart';
 import 'package:ytmusicapi_dart/models/lyrics.dart';
 import 'package:ytmusicapi_dart/navigation.dart';
+import 'package:ytmusicapi_dart/continuations.dart' show getContinuationParams;
+import 'package:ytmusicapi_dart/parsers/search.dart'
+    show getSearchParams, parseSearchResults;
 
 import '../../core/utils/song_variant_utils.dart';
 import '../models/album_model.dart';
@@ -23,6 +26,8 @@ class YtService {
 
   final Map<String, ({Object? value, DateTime createdAt})> _cache = {};
   final Map<String, Future<Object?>> _pending = {};
+  final Map<String, ({Map<String, dynamic> body, Map<String, dynamic> shelf})>
+  _songSearchCursors = {};
 
   Future<T> _cached<T>(
     String key,
@@ -148,6 +153,104 @@ class YtService {
         .where((song) => song.id.isNotEmpty)
         .toList(),
   );
+
+  String _songSearchKey(String query, bool ignoreSpelling) =>
+      'songs:${_queryKey(query)}:${ignoreSpelling ? 1 : 0}';
+
+  List<SongModel> _parseSongSearchItems(dynamic raw) {
+    if (raw is! List) return const [];
+    final items = raw
+        .whereType<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .where((entry) => entry.containsKey('musicResponsiveListItemRenderer'))
+        .toList();
+    return parseSearchResults(items, resultType: 'song', category: 'Songs')
+        .whereType<Map>()
+        .map((entry) => SongModel.fromJson(Map<String, dynamic>.from(entry)))
+        .where((song) => song.id.isNotEmpty)
+        .toList();
+  }
+
+  /// Fetches only the first page and stores YouTube Music's continuation token.
+  Future<List<SongModel>> searchSongsFirstPage(
+    String query, {
+    int limit = 20,
+    bool ignoreSpelling = false,
+  }) async {
+    final key = _songSearchKey(query, ignoreSpelling);
+    _songSearchCursors.remove(key);
+    final body = <String, dynamic>{'query': query};
+    final params = getSearchParams(
+      SearchFilterType.songs,
+      null,
+      ignoreSpelling,
+    );
+    if (params != null) body['params'] = params;
+    final response = await api.sendRequest('search', body);
+    final content = nav(response, [
+      'contents',
+      'tabbedSearchResultsRenderer',
+      'tabs',
+      0,
+      'tabRenderer',
+      'content',
+    ], nullIfAbsent: true);
+    if (content is! Map) return const [];
+    final sections = nav(content, SECTION_LIST, nullIfAbsent: true);
+    if (sections is! List) return const [];
+    Map<String, dynamic>? shelf;
+    for (final section in sections.whereType<Map>()) {
+      final rawShelf = section['musicShelfRenderer'];
+      if (rawShelf is Map) {
+        shelf = Map<String, dynamic>.from(rawShelf);
+        break;
+      }
+    }
+    if (shelf == null) return const [];
+    if (shelf.containsKey('continuations')) {
+      _songSearchCursors[key] = (body: body, shelf: shelf);
+      while (_songSearchCursors.length > 20) {
+        _songSearchCursors.remove(_songSearchCursors.keys.first);
+      }
+    }
+    final songs = _parseSongSearchItems(shelf['contents']);
+    return songs.take(limit).toList();
+  }
+
+  Future<List<SongModel>> searchSongsNextPage(
+    String query, {
+    bool ignoreSpelling = false,
+  }) async {
+    final key = _songSearchKey(query, ignoreSpelling);
+    final cursor = _songSearchCursors[key];
+    if (cursor == null) return const [];
+    final response = await api.sendRequest(
+      'search',
+      Map<String, dynamic>.of(cursor.body),
+      additionalParams: getContinuationParams(cursor.shelf),
+    );
+    final rawContinuation = nav(response, [
+      'continuationContents',
+      'musicShelfContinuation',
+    ], nullIfAbsent: true);
+    if (rawContinuation is! Map) {
+      _songSearchCursors.remove(key);
+      return const [];
+    }
+    final nextShelf = Map<String, dynamic>.from(rawContinuation);
+    if (nextShelf.containsKey('continuations')) {
+      _songSearchCursors[key] = (body: cursor.body, shelf: nextShelf);
+      while (_songSearchCursors.length > 20) {
+        _songSearchCursors.remove(_songSearchCursors.keys.first);
+      }
+    } else {
+      _songSearchCursors.remove(key);
+    }
+    return _parseSongSearchItems(nextShelf['contents']);
+  }
+
+  bool hasMoreSongSearchResults(String query, {bool ignoreSpelling = false}) =>
+      _songSearchCursors.containsKey(_songSearchKey(query, ignoreSpelling));
 
   Future<List<Map<String, dynamic>>> _searchAllRaw(
     String query, {
@@ -697,6 +800,7 @@ class YtService {
       final result = <SongModel>[];
       for (final song in source) {
         if (result.length >= max) break;
+        if (song.videoType?.toUpperCase().contains('UGC') == true) continue;
         if (song.id.isEmpty || !usedIds.add(song.id)) continue;
         final titleKey = songTitleKey(song.title);
         if (titleKey.isEmpty || !usedTitles.add(titleKey)) continue;
@@ -721,22 +825,29 @@ class YtService {
     final pools = [album, related, artist, taste];
     final indices = [0, 0, 0, 0];
     final artistCounts = <String, int>{};
+    final albumCounts = <String, int>{};
     final result = <SongModel>[];
 
     bool addFrom(int pool) {
       while (indices[pool] < pools[pool].length) {
         final song = pools[pool][indices[pool]++];
         if (song.id.isEmpty) continue;
-        final artistKey = song.artists.isEmpty
-            ? ''
-            : song.artists.first.trim().toLowerCase();
-        final maxForArtist = pool == 0 ? 4 : 2;
-        if (artistKey.isNotEmpty &&
-            (artistCounts[artistKey] ?? 0) >= maxForArtist) {
+        final artistKeys = song.artists
+            .map((artist) => artist.trim().toLowerCase())
+            .where((artist) => artist.isNotEmpty)
+            .toSet();
+        final albumKey = (song.albumId ?? song.album ?? '')
+            .trim()
+            .toLowerCase();
+        if (artistKeys.any((artist) => (artistCounts[artist] ?? 0) >= 2)) {
           continue;
         }
-        if (artistKey.isNotEmpty) {
-          artistCounts[artistKey] = (artistCounts[artistKey] ?? 0) + 1;
+        if (albumKey.isNotEmpty && (albumCounts[albumKey] ?? 0) >= 2) continue;
+        for (final artist in artistKeys) {
+          artistCounts[artist] = (artistCounts[artist] ?? 0) + 1;
+        }
+        if (albumKey.isNotEmpty) {
+          albumCounts[albumKey] = (albumCounts[albumKey] ?? 0) + 1;
         }
         result.add(song);
         return true;
@@ -746,28 +857,30 @@ class YtService {
 
     // Relacionadas y gustos primero, con apariciones medidas del álbum y del
     // artista para que ninguna fuente domine la cola.
+    // Por cada bloque de 24: 9 pistas del artista (37.5 %), 11 relacionadas
+    // (45.8 %) y 4 elegidas según los gustos locales (16.7 %).
     const pattern = [
-      1,
-      3,
+      2,
       1,
       2,
       1,
       3,
-      0,
+      2,
+      1,
+      2,
+      1,
+      3,
+      2,
+      1,
+      2,
       1,
       2,
       3,
       1,
-      1,
-      0,
-      3,
       2,
       1,
-      1,
-      3,
-      0,
-      1,
       2,
+      1,
       3,
       1,
       1,

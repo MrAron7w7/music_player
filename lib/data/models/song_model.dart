@@ -15,6 +15,7 @@ class SongModel {
     this.isExplicit = false,
     this.year,
     this.genre,
+    this.videoType,
   });
   final String id;
   final String title;
@@ -31,6 +32,7 @@ class SongModel {
   /// Género opcional cuando la fuente lo aporta (p. ej. una playlist de
   /// Moods & Genres). Nunca se inventa para resultados de búsqueda.
   final String? genre;
+  final String? videoType;
 
   String? get artworkUrl {
     final source = highResThumbnailUrl ?? thumbnailUrl;
@@ -95,6 +97,7 @@ class SongModel {
           ? j['year'] as int
           : int.tryParse('${j['year'] ?? ''}'),
       genre: j['genre'] as String?,
+      videoType: j['videoType'] as String? ?? j['video_type'] as String?,
     );
   }
 
@@ -141,6 +144,7 @@ class SongModel {
     'isExplicit': isExplicit,
     'year': year,
     'genre': genre,
+    'videoType': videoType,
   };
   SongModel copyWith({
     String? id,
@@ -155,6 +159,7 @@ class SongModel {
     bool? isExplicit,
     int? year,
     String? genre,
+    String? videoType,
   }) => SongModel(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -168,6 +173,7 @@ class SongModel {
     isExplicit: isExplicit ?? this.isExplicit,
     year: year ?? this.year,
     genre: genre ?? this.genre,
+    videoType: videoType ?? this.videoType,
   );
   @override
   bool operator ==(Object other) => other is SongModel && id == other.id;

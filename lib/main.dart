@@ -133,6 +133,7 @@ Future<void> main() async {
       downloads: downloadService,
       stats: statsService,
       history: boxes[2],
+      favorites: boxes[0],
     ),
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.example.music_app.audio',
@@ -141,7 +142,7 @@ Future<void> main() async {
           'Controles de reproducción de Simple Music',
       androidNotificationIcon: 'drawable/ic_stat_music',
       notificationColor: Color(0xFF2563EB),
-      androidNotificationOngoing: true,
+      androidNotificationOngoing: false,
       androidStopForegroundOnPause: true,
       androidNotificationClickStartsActivity: true,
       androidShowNotificationBadge: false,

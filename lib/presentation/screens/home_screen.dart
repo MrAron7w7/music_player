@@ -49,9 +49,8 @@ Future<void> _playSongs(
   List<SongModel> songs,
   int index,
 ) async {
-  ref
-      .read(audioHandlerProvider)
-      .playSongs(songs, startIndex: index, shuffle: false);
+  if (songs.isEmpty || index < 0 || index >= songs.length) return;
+  ref.read(audioHandlerProvider).playSongs([songs[index]], shuffle: false);
   if (context.mounted) context.push('/now-playing');
   unawaited(requestPlaybackNotificationPermission(context: context));
 }
@@ -224,43 +223,6 @@ class _OfflineBanner extends ConsumerWidget {
               ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Accesos rápidos a lo último reproducido.
-class _RecentChips extends ConsumerWidget {
-  const _RecentChips();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final offline = ref.watch(effectiveOfflineProvider);
-    final downloadedIds = ref.watch(downloadedSongIdsProvider);
-    final recent = ref.watch(recentChipsProvider);
-    final visible = offline
-        ? recent.where((song) => downloadedIds.contains(song.id)).toList()
-        : recent;
-    if (visible.isEmpty) return const SizedBox.shrink();
-    return SizedBox(
-      height: 44,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 22),
-        itemCount: visible.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final song = visible[index];
-          return ActionChip(
-            avatar: const Icon(Icons.play_arrow_rounded, size: 18),
-            label: Text(
-              song.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            onPressed: () => _playSongs(context, ref, visible, index),
-          );
-        },
       ),
     );
   }

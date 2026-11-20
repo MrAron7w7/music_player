@@ -32,11 +32,14 @@ StatsSnapshot _emptyStats() => const StatsSnapshot(
 
 /// Mezclas del día: se cachean una vez por fecha. Si no hay red, se reintenta
 /// con el último día disponible y, como último recurso, con el pool local.
-final dailyMixesProvider = FutureProvider.autoDispose<List<DailyMix>>((ref) async {
+final dailyMixesProvider = FutureProvider.autoDispose<List<DailyMix>>((
+  ref,
+) async {
   final cache = ref.watch(appCacheProvider);
   final today = DateTime.now();
   for (var offset = 0; offset < 3; offset++) {
-    final key = 'home:dailyMixes:${dayKey(today.subtract(Duration(days: offset)))}';
+    final key =
+        'home:dailyMixes:${dayKey(today.subtract(Duration(days: offset)))}';
     final stored = cache.getStale<List>(key);
     if (stored == null) continue;
     final mixes = stored
@@ -88,7 +91,7 @@ final dailyMixesProvider = FutureProvider.autoDispose<List<DailyMix>>((ref) asyn
   return mixes;
 });
 
-/// Historial reciente para “Seguir escuchando” y los chips de arriba.
+/// Historial reciente para “Seguir escuchando”.
 final continueListeningProvider = Provider.autoDispose<List<SongModel>>((ref) {
   final history = ref.watch(historyProvider);
   final seen = <String>{};
@@ -100,10 +103,6 @@ final continueListeningProvider = Provider.autoDispose<List<SongModel>>((ref) {
   }
   return result;
 });
-
-final recentChipsProvider = Provider.autoDispose<List<SongModel>>(
-  (ref) => ref.watch(continueListeningProvider).take(4).toList(),
-);
 
 /// “Porque escuchaste…”: usa el último artista del historial. Si no hay red,
 /// cae al pool local sin bloquear el resto de Inicio.

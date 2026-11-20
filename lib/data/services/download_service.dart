@@ -11,17 +11,22 @@ import '../repositories/music_repository.dart' show AudioQuality;
 /// Una canción descargada de forma explícita por el usuario.
 @immutable
 class DownloadEntry {
+  static const _extensions = {'audio', 'm4a', 'webm', 'mp3', 'ogg'};
   const DownloadEntry({
     required this.song,
     required this.bytes,
     required this.createdAt,
     this.quality = 'high',
+    this.extension = 'audio',
+    this.expectedBytes,
   });
 
   final SongModel song;
   final int bytes;
   final DateTime createdAt;
   final String quality;
+  final String extension;
+  final int? expectedBytes;
 
   factory DownloadEntry.fromJson(Map<String, dynamic> json) => DownloadEntry(
     song: SongModel.fromJson(
@@ -30,6 +35,10 @@ class DownloadEntry {
     bytes: (json['bytes'] as num?)?.toInt() ?? 0,
     createdAt: DateTime.tryParse('${json['createdAt']}') ?? DateTime.now(),
     quality: '${json['quality'] ?? 'high'}',
+    extension: _extensions.contains(json['extension'])
+        ? json['extension'] as String
+        : 'audio',
+    expectedBytes: (json['expectedBytes'] as num?)?.toInt(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -37,6 +46,8 @@ class DownloadEntry {
     'bytes': bytes,
     'createdAt': createdAt.toIso8601String(),
     'quality': quality,
+    'extension': extension,
+    'expectedBytes': expectedBytes,
   };
 }
 
@@ -105,16 +116,22 @@ class DownloadService {
 
   bool isDownloading(String songId) => _inFlight.containsKey(songId);
 
-  File _fileFor(String id) =>
-      File('${directory.path}${Platform.pathSeparator}$id.audio');
+  File _fileFor(String id, [String extension = 'audio']) =>
+      File('${directory.path}${Platform.pathSeparator}$id.$extension');
 
   File? fileFor(String id) {
     if (id.isEmpty) return null;
     final entry = _entries[id];
     if (entry == null) return null;
-    final file = _fileFor(id);
+    final file = _fileFor(id, entry.extension);
     try {
-      if (file.existsSync() && file.lengthSync() >= minValidBytes) return file;
+      if (!file.existsSync()) return null;
+      final length = file.lengthSync();
+      if (length < minValidBytes ||
+          (entry.expectedBytes != null && length != entry.expectedBytes)) {
+        return null;
+      }
+      return file;
     } catch (_) {}
     return null;
   }
@@ -141,11 +158,15 @@ class DownloadService {
       if (value is! Map) continue;
       try {
         final entry = DownloadEntry.fromJson(Map<String, dynamic>.from(value));
-        final file = _fileFor(entry.song.id);
-        if (file.existsSync() && file.lengthSync() >= minValidBytes) {
+        final file = _fileFor(entry.song.id, entry.extension);
+        if (file.existsSync() &&
+            file.lengthSync() >= minValidBytes &&
+            (entry.expectedBytes == null ||
+                file.lengthSync() == entry.expectedBytes)) {
           loaded[entry.song.id] = entry;
         } else {
           await box.delete(entry.song.id);
+          await _delete(file);
         }
       } catch (_) {
         // Una entrada antigua incompatible se ignora.
@@ -205,7 +226,9 @@ class DownloadService {
       );
     }
 
-    final target = _fileFor(song.id);
+    final oldEntry = _entries[song.id];
+    var extension = 'audio';
+    final target = _fileFor(song.id, extension);
     final temp = File('${target.path}.part');
     IOSink? sink;
     try {
@@ -220,8 +243,18 @@ class DownloadService {
       if (response.statusCode != HttpStatus.ok) {
         throw const DownloadException('El servidor no permitió la descarga.');
       }
-      final mime = response.headers.contentType?.mimeType;
-      if (mime != null && mime.startsWith('text/')) {
+      final mime =
+          response.headers.contentType?.mimeType ?? uri.queryParameters['mime'];
+      final mimeType = mime?.split(';').first.trim();
+      extension = switch (mimeType) {
+        'audio/mp4' || 'video/mp4' => 'm4a',
+        'audio/x-m4a' => 'm4a',
+        'audio/webm' || 'video/webm' => 'webm',
+        'audio/mpeg' => 'mp3',
+        'audio/ogg' => 'ogg',
+        _ => 'audio',
+      };
+      if (mimeType != null && mimeType.startsWith('text/')) {
         throw const DownloadException('El audio recibido no es válido.');
       }
 
@@ -265,14 +298,20 @@ class DownloadService {
         await _delete(temp);
         throw const DownloadException('La descarga quedó incompleta.');
       }
-      if (target.existsSync()) await target.delete();
-      await temp.rename(target.path);
+      final finalTarget = _fileFor(song.id, extension);
+      if (oldEntry != null && oldEntry.extension != extension) {
+        await _delete(_fileFor(song.id, oldEntry.extension));
+      }
+      if (finalTarget.existsSync()) await finalTarget.delete();
+      await temp.rename(finalTarget.path);
 
       final entry = DownloadEntry(
         song: song,
         bytes: written,
         createdAt: DateTime.now(),
         quality: quality.name,
+        extension: extension,
+        expectedBytes: total > 0 ? total : written,
       );
       _entries[song.id] = entry;
       await box.put(song.id, entry.toJson());
@@ -333,9 +372,11 @@ class DownloadService {
 
   Future<void> delete(String songId) async {
     _cancelled.add(songId);
+    final entry = _entries[songId];
     _entries.remove(songId);
     _progress.remove(songId);
     await box.delete(songId);
+    if (entry != null) await _delete(_fileFor(songId, entry.extension));
     await _delete(_fileFor(songId));
     await _delete(File('${_fileFor(songId).path}.part'));
     _emit();

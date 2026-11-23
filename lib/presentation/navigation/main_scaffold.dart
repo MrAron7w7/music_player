@@ -158,8 +158,8 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
   }
 }
 
-/// Dock de navegación propio: el destino activo se convierte en una cápsula
-/// ancha con degradado y etiqueta, mientras el resto queda como iconos limpios.
+/// Dock compacto de navegación: el destino activo se indica con una cápsula
+/// luminosa; las etiquetas se conservan para accesibilidad mediante Semantics.
 class _MusicNavigationBar extends StatelessWidget {
   const _MusicNavigationBar({required this.index, required this.onSelected});
 
@@ -237,7 +237,7 @@ class _NavDockItem extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 280),
         curve: Curves.easeOutCubic,
-        width: selected ? 118 : 50,
+        width: 52,
         height: 52,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
@@ -269,45 +269,21 @@ class _NavDockItem extends StatelessWidget {
               HapticFeedback.selectionClick();
               onTap();
             },
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: selected ? 13 : 0),
-              child: Row(
-                mainAxisAlignment: selected
-                    ? MainAxisAlignment.start
-                    : MainAxisAlignment.center,
-                children: [
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 200),
-                    transitionBuilder: (child, animation) => ScaleTransition(
-                      scale: animation,
-                      child: FadeTransition(opacity: animation, child: child),
-                    ),
-                    child: Icon(
-                      selected ? selectedIcon : icon,
-                      key: ValueKey(selected),
-                      size: 23,
-                      color: selected
-                          ? activeColor
-                          : colors.onSurfaceVariant.withValues(alpha: .78),
-                    ),
+            child: Center(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                transitionBuilder: (child, animation) => ScaleTransition(
+                  scale: animation,
+                  child: FadeTransition(opacity: animation, child: child),
+                ),
+                child: Icon(
+                  selected ? selectedIcon : icon,
+                  key: ValueKey(selected),
+                  size: 23,
+                  color: selected
+                      ? activeColor
+                      : colors.onSurfaceVariant.withValues(alpha: .78),
                   ),
-                  if (selected) ...[
-                    const SizedBox(width: 9),
-                    Flexible(
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: activeColor,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -.1,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
               ),
             ),
           ),
@@ -343,7 +319,7 @@ class _GlassSurface extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(radius),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: theme.colorScheme.surface.withValues(alpha: .82),

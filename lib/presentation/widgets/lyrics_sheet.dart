@@ -34,6 +34,8 @@ class _LyricsSheetState extends ConsumerState<LyricsSheet> {
   int _activeIndex = -1;
   bool _timed = false;
   List<Map<String, dynamic>> _timedLines = const [];
+  Object? _cachedLyricsPayload;
+  List<Map<String, dynamic>> _cachedLines = const [];
   DateTime? _pauseAutoScrollUntil;
 
   bool get _autoScrollPaused =>
@@ -125,7 +127,7 @@ class _LyricsSheetState extends ConsumerState<LyricsSheet> {
         return ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
           child: DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -215,10 +217,17 @@ class _LyricsSheetState extends ConsumerState<LyricsSheet> {
                       if (data == null || data['lines'] is! List) {
                         return _LyricsUnavailable(onRetry: _retry);
                       }
-                      final lines = (data['lines'] as List)
-                          .whereType<Map>()
-                          .map((line) => Map<String, dynamic>.from(line))
-                          .toList();
+                      // La posición de reproducción puede reconstruir este
+                      // widget varias veces. Reutiliza las líneas parseadas
+                      // mientras el payload de letras no haya cambiado.
+                      if (!identical(_cachedLyricsPayload, data)) {
+                        _cachedLyricsPayload = data;
+                        _cachedLines = (data['lines'] as List)
+                            .whereType<Map>()
+                            .map((line) => Map<String, dynamic>.from(line))
+                            .toList(growable: false);
+                      }
+                      final lines = _cachedLines;
                       if (lines.isEmpty) {
                         return _LyricsUnavailable(onRetry: _retry);
                       }
@@ -365,7 +374,7 @@ class _LyricsSheetState extends ConsumerState<LyricsSheet> {
     target = (target - viewport * 0.35).clamp(0.0, maxExtent);
     controller.animateTo(
       target,
-      duration: const Duration(milliseconds: 620),
+      duration: const Duration(milliseconds: 280),
       curve: Curves.easeOutCubic,
     );
   }
@@ -437,7 +446,7 @@ class _LyricLine extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: AnimatedDefaultTextStyle(
-        duration: const Duration(milliseconds: 420),
+        duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
         textAlign: TextAlign.center,
         style: theme.textTheme.headlineSmall!.copyWith(
@@ -447,7 +456,7 @@ class _LyricLine extends StatelessWidget {
           letterSpacing: active ? -.5 : -.1,
           color: colors.onSurface.withValues(alpha: alpha),
           shadows: active
-              ? [Shadow(color: accent.withValues(alpha: .38), blurRadius: 22)]
+              ? [Shadow(color: accent.withValues(alpha: .24), blurRadius: 10)]
               : null,
         ),
         child: Text(text),

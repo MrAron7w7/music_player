@@ -10,6 +10,8 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/constants/app_config.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/glass/glass_quality.dart';
+import '../../core/theme/glass/glass_components.dart';
 import '../../core/utils/notification_permissions.dart';
 import '../../core/utils/helpers.dart';
 import '../../data/repositories/music_repository.dart';
@@ -218,21 +220,31 @@ class SettingsScreen extends ConsumerWidget {
   Future<bool> _confirmClearCache(BuildContext context, String title) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: const Text(
-          'Esta acción no se puede deshacer. ¿Deseas continuar?',
+      builder: (dialogContext) => GlassDialog(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            const Text('Esta acción no se puede deshacer. ¿Deseas continuar?'),
+            const SizedBox(height: 22),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancelar'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Borrar'),
+                ),
+              ],
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Borrar'),
-          ),
-        ],
       ),
     );
     return confirmed == true;
@@ -498,6 +510,46 @@ class SettingsScreen extends ConsumerWidget {
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () => _selectTheme(context, ref),
                   ),
+                ),
+                _SettingsTile(
+                  icon: Icons.blur_on_rounded,
+                  title: 'Efectos de cristal',
+                  subtitle: ref.watch(glassQualityProvider).label,
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    final current = ref.read(glassQualityProvider);
+                    final selected = await showModalBottomSheet<GlassQuality>(
+                      context: context,
+                      backgroundColor: Colors.transparent,
+                      showDragHandle: false,
+                      builder: (sheetContext) => SafeArea(
+                        child: GlassSheet(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const ListTile(title: Text('Efectos de cristal')),
+                              for (final option in GlassQuality.values)
+                                ListTile(
+                                  title: Text(option.label),
+                                  subtitle: Text(option.description),
+                                  trailing: current == option
+                                      ? const Icon(Icons.check_rounded)
+                                      : null,
+                                  onTap: () =>
+                                      Navigator.pop(sheetContext, option),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                    if (selected == null) return;
+                    ref.read(glassQualityProvider.notifier).state = selected;
+                    await ref
+                        .read(localRepositoryProvider)
+                        .settings
+                        .put(AppConstants.glassQualityKey, selected.name);
+                  },
                 ),
               ],
             ),

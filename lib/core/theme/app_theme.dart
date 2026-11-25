@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'glass/glass_theme.dart';
+
 class AppTheme {
   static const blue = Color(0xFF2563EB);
   static final themeMode = ValueNotifier<ThemeMode>(ThemeMode.system);
@@ -49,6 +51,7 @@ class AppTheme {
     final textTheme = _baseTextThemes[brightness]!;
 
     return ThemeData(
+      extensions: const <ThemeExtension<dynamic>>[GlassTheme()],
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme.copyWith(

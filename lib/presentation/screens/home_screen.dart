@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/theme/glass/glass_components.dart';
 import '../../core/utils/genre_artwork.dart';
 import '../../core/utils/notification_permissions.dart';
 import '../../data/models/album_model.dart';
@@ -61,6 +62,9 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final offline = ref.watch(effectiveOfflineProvider);
+    final ambientColor = ref.watch(
+      albumArtColorProvider.select((state) => state.valueOrNull),
+    );
     return Scaffold(
       body: RefreshIndicator.adaptive(
         onRefresh: () async {
@@ -78,31 +82,34 @@ class HomeScreen extends ConsumerWidget {
           }
           await Future<void>.delayed(const Duration(milliseconds: 350));
         },
-        child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverList.list(
-              children: [
-                _reveal(const _GreetingHeader()),
-                if (offline) const _OfflineBanner(),
-                //_reveal(const _RecentChips(), delay: 20),
-                _reveal(const _ContinueListeningSection(), delay: 40),
-                _reveal(const _DailyMixesSection(), delay: 60),
-                if (!offline) _reveal(const _TrendingSection(), delay: 100),
-                if (!offline) _reveal(const _GenresSection(), delay: 120),
-                _reveal(const _BecauseYouListenedSection(), delay: 140),
-                if (!offline) _reveal(const _ForYouSection(), delay: 160),
-                _reveal(const _RediscoverSection(), delay: 180),
-                _reveal(const _TopArtistsSection(), delay: 200),
-                if (!offline)
-                  _reveal(const _FollowedReleasesSection(), delay: 220),
-                if (!offline) _reveal(const _SpotlightSection(), delay: 240),
-                if (!offline) _reveal(const _MoodMixesSection(), delay: 260),
-                const _EmptyHomeSection(),
-                const SizedBox(height: AppConstants.floatingNavInset),
-              ],
-            ),
-          ],
+        child: AmbientBackground(
+          color: ambientColor ?? Theme.of(context).colorScheme.primary,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverList.list(
+                children: [
+                  _reveal(const _GreetingHeader()),
+                  if (offline) const _OfflineBanner(),
+                  //_reveal(const _RecentChips(), delay: 20),
+                  _reveal(const _ContinueListeningSection(), delay: 40),
+                  _reveal(const _DailyMixesSection(), delay: 60),
+                  if (!offline) _reveal(const _TrendingSection(), delay: 100),
+                  if (!offline) _reveal(const _GenresSection(), delay: 120),
+                  _reveal(const _BecauseYouListenedSection(), delay: 140),
+                  if (!offline) _reveal(const _ForYouSection(), delay: 160),
+                  _reveal(const _RediscoverSection(), delay: 180),
+                  _reveal(const _TopArtistsSection(), delay: 200),
+                  if (!offline)
+                    _reveal(const _FollowedReleasesSection(), delay: 220),
+                  if (!offline) _reveal(const _SpotlightSection(), delay: 240),
+                  if (!offline) _reveal(const _MoodMixesSection(), delay: 260),
+                  const _EmptyHomeSection(),
+                  const SizedBox(height: AppConstants.floatingNavInset),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

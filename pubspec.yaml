@@ -1,7 +1,7 @@
 name: music_app
 description: Simple Music – reproductor de música personal, simple y oscuro.
 publish_to: "none"
-version: 2.5.6+17
+version: 3.0.0+18
 environment:
   sdk: ^3.13.4
 dependencies:

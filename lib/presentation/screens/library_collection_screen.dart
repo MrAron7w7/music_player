@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/theme/glass/glass_surface.dart';
 import '../../core/utils/extensions.dart';
 import '../../core/utils/notification_permissions.dart';
 import '../../core/utils/search_sort.dart' show sortCollectionSongs;
@@ -262,7 +263,9 @@ class _LibraryCollectionScreenState
                 song.artists.join(' ').toLowerCase().contains(q);
           }).toList();
     final visibleSongs = offline
-        ? filteredSource.where((song) => downloadedIds.contains(song.id)).toList()
+        ? filteredSource
+              .where((song) => downloadedIds.contains(song.id))
+              .toList()
         : filteredSource;
     final sortKey = widget.collection == LibraryCollection.favorites
         ? 'favorites'
@@ -440,10 +443,7 @@ class _LibraryCollectionScreenState
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: colors.primary,
-                        width: 1.5,
-                      ),
+                      borderSide: BorderSide(color: colors.primary, width: 1.5),
                     ),
                   ),
                 ),
@@ -452,24 +452,32 @@ class _LibraryCollectionScreenState
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 2, 20, 6),
-                child: Row(
-                  children: [
-                    Text(
-                      'Canciones',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -.3,
-                      ),
+                child: GlassSurface(
+                  radius: 24,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Canciones',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -.3,
+                              ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${sortedSongs.length}',
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(
+                                color: colors.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ],
                     ),
-                    const Spacer(),
-                    Text(
-                      '${sortedSongs.length}',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: colors.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),

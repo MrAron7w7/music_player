@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/utils/artwork_url.dart';
+import '../../core/theme/glass/glass_surface.dart';
 import '../../providers/player_providers.dart';
 import 'album_art.dart';
 
@@ -91,7 +91,9 @@ class MiniPlayer extends ConsumerWidget {
         processingState == AudioProcessingState.buffering;
 
     return AnimatedSize(
-      duration: const Duration(milliseconds: 250),
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 250),
       curve: Curves.easeOutCubic,
       alignment: Alignment.topCenter,
       child: song == null
@@ -116,17 +118,19 @@ class MiniPlayer extends ConsumerWidget {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(20),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  child: GlassSurface(
+                    radius: 20,
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
+                      duration: MediaQuery.disableAnimationsOf(context)
+                          ? Duration.zero
+                          : const Duration(milliseconds: 300),
                       curve: Curves.easeInOutCubic,
                       decoration: BoxDecoration(
                         color: Color.lerp(
                           theme.colorScheme.surfaceContainerHigh,
                           accent,
                           theme.brightness == Brightness.dark ? .12 : .07,
-                        )!.withValues(alpha: .9),
+                        )!.withValues(alpha: .38),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
                           color: accent.withValues(alpha: .22),
@@ -137,146 +141,160 @@ class MiniPlayer extends ConsumerWidget {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(20),
                         ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _MiniPlayerProgress(
-                        fallbackDuration: song.duration,
-                        accent: accent,
-                      ),
-                      InkWell(
-                        onTap: () => context.push('/now-playing'),
-                        child: SizedBox(
-                          height: 70,
-                          child: Padding(
-                            padding: const EdgeInsets.only(left: 10, right: 6),
-                            child: Row(
-                              children: [
-                                Hero(
-                                  tag: 'art-${song.id}',
-                                  child: AlbumArt(
-                                    url: song.artworkUrl,
-                                    fallbackUrl: song.thumbnailUrl,
-                                    size: 48,
-                                    radius: 11,
+                        clipBehavior: Clip.antiAlias,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _MiniPlayerProgress(
+                              fallbackDuration: song.duration,
+                              accent: accent,
+                            ),
+                            InkWell(
+                              onTap: () => context.push('/now-playing'),
+                              child: SizedBox(
+                                height: 70,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                    left: 10,
+                                    right: 6,
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                  child: Row(
                                     children: [
-                                      Text(
-                                        song.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleSmall
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w700,
-                                            ),
+                                      Hero(
+                                        tag: 'art-${song.id}',
+                                        child: AlbumArt(
+                                          url: song.artworkUrl,
+                                          fallbackUrl: song.thumbnailUrl,
+                                          size: 48,
+                                          radius: 11,
+                                        ),
                                       ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        error ??
-                                            (loading
-                                                ? 'Cargando audio…'
-                                                : song.artists.join(', ')),
-                                        maxLines: error != null ? 2 : 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: error != null
-                                                  ? Theme.of(context)
-                                                        .colorScheme
-                                                        .error
-                                                  : Theme.of(context)
-                                                        .colorScheme
-                                                        .onSurfaceVariant,
-                                              fontWeight: error != null
-                                                  ? FontWeight.w600
-                                                  : null,
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              song.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleSmall
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
                                             ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              error ??
+                                                  (loading
+                                                      ? 'Cargando audio…'
+                                                      : song.artists.join(
+                                                          ', ',
+                                                        )),
+                                              maxLines: error != null ? 2 : 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    color: error != null
+                                                        ? Theme.of(context)
+                                                              .colorScheme
+                                                              .error
+                                                        : Theme.of(context)
+                                                              .colorScheme
+                                                              .onSurfaceVariant,
+                                                    fontWeight: error != null
+                                                        ? FontWeight.w600
+                                                        : null,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (error != null)
+                                        IconButton(
+                                          tooltip: 'Reintentar',
+                                          onPressed: () => ref
+                                              .read(audioHandlerProvider)
+                                              .retryCurrent(),
+                                          icon: Icon(
+                                            Icons.refresh_rounded,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .error,
+                                          ),
+                                        )
+                                      else if (loading)
+                                        const SizedBox(
+                                          width: 44,
+                                          height: 44,
+                                          child: Padding(
+                                            padding: EdgeInsets.all(14),
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          ),
+                                        )
+                                      else
+                                        IconButton(
+                                          tooltip: playing
+                                              ? 'Pausar'
+                                              : 'Reproducir',
+                                          onPressed: () {
+                                            HapticFeedback.selectionClick();
+                                            if (playing) {
+                                              ref
+                                                  .read(audioHandlerProvider)
+                                                  .pause();
+                                            } else {
+                                              ref
+                                                  .read(audioHandlerProvider)
+                                                  .play();
+                                            }
+                                          },
+                                          icon: Icon(
+                                            playing
+                                                ? Icons.pause_rounded
+                                                : Icons.play_arrow_rounded,
+                                          ),
+                                        ),
+                                      IconButton(
+                                        tooltip: 'Siguiente',
+                                        onPressed:
+                                            loading ||
+                                                !ref
+                                                    .read(audioHandlerProvider)
+                                                    .hasNext
+                                            ? null
+                                            : () {
+                                                HapticFeedback.selectionClick();
+                                                ref
+                                                    .read(audioHandlerProvider)
+                                                    .skipToNext();
+                                              },
+                                        icon: const Icon(
+                                          Icons.skip_next_rounded,
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
-                                if (error != null)
-                                  IconButton(
-                                    tooltip: 'Reintentar',
-                                    onPressed: () => ref
-                                        .read(audioHandlerProvider)
-                                        .retryCurrent(),
-                                    icon: Icon(
-                                      Icons.refresh_rounded,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .error,
-                                    ),
-                                  )
-                                else if (loading)
-                                  const SizedBox(
-                                    width: 44,
-                                    height: 44,
-                                    child: Padding(
-                                      padding: EdgeInsets.all(14),
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                  )
-                                else
-                                  IconButton(
-                                    tooltip: playing ? 'Pausar' : 'Reproducir',
-                                    onPressed: () {
-                                      HapticFeedback.selectionClick();
-                                      if (playing) {
-                                        ref.read(audioHandlerProvider).pause();
-                                      } else {
-                                        ref.read(audioHandlerProvider).play();
-                                      }
-                                    },
-                                    icon: Icon(
-                                      playing
-                                          ? Icons.pause_rounded
-                                          : Icons.play_arrow_rounded,
-                                    ),
-                                  ),
-                                IconButton(
-                                  tooltip: 'Siguiente',
-                                  onPressed:
-                                      loading ||
-                                          !ref
-                                              .read(audioHandlerProvider)
-                                              .hasNext
-                                      ? null
-                                      : () {
-                                          HapticFeedback.selectionClick();
-                                          ref
-                                              .read(audioHandlerProvider)
-                                              .skipToNext();
-                                        },
-                                  icon: const Icon(Icons.skip_next_rounded),
-                                ),
-                              ],
+                              ),
                             ),
-                          ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ),
-      ),
     );
   }
 }

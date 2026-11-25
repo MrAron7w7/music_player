@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/glass/glass_quality.dart';
+import '../../core/theme/glass/glass_surface.dart';
+
 class SearchBarWidget extends StatefulWidget {
   const SearchBarWidget({
     super.key,
@@ -81,21 +84,9 @@ class _SearchBarWidgetState extends State<SearchBarWidget> {
           icon: const Icon(Icons.close_rounded),
         ),
     ];
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: _focusNode.hasFocus
-            ? [
-                BoxShadow(
-                  color: Theme.of(context).colorScheme.primary
-                      .withValues(alpha: .12),
-                  blurRadius: 18,
-                  offset: const Offset(0, 5),
-                ),
-              ]
-            : const [],
-      ),
+    return GlassSurface(
+      radius: 22,
+      quality: GlassQuality.low,
       child: TextField(
         controller: widget.controller,
         focusNode: _focusNode,

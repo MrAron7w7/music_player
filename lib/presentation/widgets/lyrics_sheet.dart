@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -37,6 +35,7 @@ class _LyricsSheetState extends ConsumerState<LyricsSheet> {
   Object? _cachedLyricsPayload;
   List<Map<String, dynamic>> _cachedLines = const [];
   DateTime? _pauseAutoScrollUntil;
+  List<GlobalKey> _lineKeys = const [];
 
   bool get _autoScrollPaused =>
       _pauseAutoScrollUntil != null &&
@@ -102,7 +101,11 @@ class _LyricsSheetState extends ConsumerState<LyricsSheet> {
     ref.listen<AsyncValue<Duration>>(positionProvider, (previous, next) {
       final positionMs = next.valueOrNull?.inMilliseconds;
       if (positionMs == null || !_timed || _timedLines.isEmpty) return;
-      final index = _activeLineIncremental(_timedLines, positionMs, _activeIndex);
+      final index = _activeLineIncremental(
+        _timedLines,
+        positionMs,
+        _activeIndex,
+      );
       if (index != _activeIndex) {
         _activeIndex = index;
         _lastScrolledLine = index;
@@ -121,13 +124,11 @@ class _LyricsSheetState extends ConsumerState<LyricsSheet> {
           _scrollScheduled = false;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            _scrollToLine(_activeIndex, sheetController);
+            _scrollToLine(_activeIndex);
           });
         }
         return ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
           child: DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -244,7 +245,8 @@ class _LyricsSheetState extends ConsumerState<LyricsSheet> {
                       _timed = timed;
                       _timedLines = lines;
                       _activeIndex = active;
-                      final hasSource = data['source'] != null &&
+                      final hasSource =
+                          data['source'] != null &&
                           '${data['source']}'.trim().isNotEmpty;
 
                       if (timed &&
@@ -255,101 +257,148 @@ class _LyricsSheetState extends ConsumerState<LyricsSheet> {
                         _scheduleScroll();
                       }
 
+                      if (_lineKeys.length != lines.length) {
+                        _lineKeys = List<GlobalKey>.generate(
+                          lines.length,
+                          (_) => GlobalKey(),
+                          growable: false,
+                        );
+                      }
                       return NotificationListener<ScrollNotification>(
                         onNotification: (notification) {
                           _onUserScroll(notification);
                           return false;
                         },
-                        child: ShaderMask(
-                          blendMode: BlendMode.dstIn,
-                          shaderCallback: (rect) => const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.white,
-                              Colors.white,
-                              Colors.transparent,
-                            ],
-                            stops: [0, .07, .88, 1],
-                          ).createShader(rect),
-                          child: ListView.builder(
-                            controller: sheetController,
-                            physics: const BouncingScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(28, 26, 28, 120),
-                            itemCount:
-                                (timed ? 1 : 0) +
-                                lines.length +
-                                (hasSource ? 2 : 1),
-                            itemBuilder: (context, index) {
-                              if (timed && index == 0) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 22),
-                                  child: Row(
-                                    children: [_SyncBadge(accent: accent)],
-                                  ),
-                                );
-                              }
-                              var lineIndex = index - (timed ? 1 : 0);
-                              if (lineIndex < lines.length) {
-                                return Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (lineIndex > 0)
-                                      const SizedBox(height: 18),
-                                    _LyricLine(
-                                      text:
-                                          '${lines[lineIndex]['text'] ?? ''}',
-                                      timed: timed,
-                                      active: lineIndex == active,
-                                      distance:
-                                          timed ? (lineIndex - active).abs() : 0,
-                                      accent: accent,
-                                      onTap: timed
-                                          ? () {
-                                              final start =
-                                                  lines[lineIndex]['startMs'];
-                                              final startMs = start is num
-                                                  ? start.toInt()
-                                                  : int.tryParse('$start');
-                                              if (startMs == null) return;
-                                              _pauseAutoScrollUntil =
-                                                  DateTime.now()
-                                                      .add(const Duration(
-                                                          seconds: 3));
-                                              ref
-                                                  .read(audioHandlerProvider)
-                                                  .seek(
-                                                    Duration(
-                                                        milliseconds:
-                                                            startMs),
-                                                  );
-                                            }
-                                          : null,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            ListView.builder(
+                              controller: sheetController,
+                              physics: const BouncingScrollPhysics(),
+                              padding: const EdgeInsets.fromLTRB(
+                                28,
+                                26,
+                                28,
+                                120,
+                              ),
+                              itemCount:
+                                  (timed ? 1 : 0) +
+                                  lines.length +
+                                  (hasSource ? 2 : 1),
+                              itemBuilder: (context, index) {
+                                if (timed && index == 0) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 22),
+                                    child: Row(
+                                      children: [_SyncBadge(accent: accent)],
                                     ),
-                                  ],
-                                );
-                              }
-                              lineIndex -= lines.length;
-                              if (lineIndex == 0) {
-                                return const SizedBox(height: 18);
-                              }
-                              if (hasSource && lineIndex == 1) {
-                                return Center(
-                                  child: Text(
-                                    'Letra de ${data['source']}',
-                                    textAlign: TextAlign.center,
-                                    style: theme.textTheme.labelSmall
-                                        ?.copyWith(
-                                      color: colors.onSurfaceVariant
-                                          .withValues(alpha: .6),
+                                  );
+                                }
+                                var lineIndex = index - (timed ? 1 : 0);
+                                if (lineIndex < lines.length) {
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (lineIndex > 0)
+                                        const SizedBox(height: 18),
+                                      _LyricLine(
+                                        key: _lineKeys[lineIndex],
+                                        text:
+                                            '${lines[lineIndex]['text'] ?? ''}',
+                                        timed: timed,
+                                        active: lineIndex == active,
+                                        distance: timed
+                                            ? (lineIndex - active).abs()
+                                            : 0,
+                                        accent: accent,
+                                        onTap: timed
+                                            ? () {
+                                                final start =
+                                                    lines[lineIndex]['startMs'];
+                                                final startMs = start is num
+                                                    ? start.toInt()
+                                                    : int.tryParse('$start');
+                                                if (startMs == null) return;
+                                                _pauseAutoScrollUntil =
+                                                    DateTime.now().add(
+                                                      const Duration(
+                                                        seconds: 3,
+                                                      ),
+                                                    );
+                                                ref
+                                                    .read(audioHandlerProvider)
+                                                    .seek(
+                                                      Duration(
+                                                        milliseconds: startMs,
+                                                      ),
+                                                    );
+                                              }
+                                            : null,
+                                      ),
+                                    ],
+                                  );
+                                }
+                                lineIndex -= lines.length;
+                                if (lineIndex == 0) {
+                                  return const SizedBox(height: 18);
+                                }
+                                if (hasSource && lineIndex == 1) {
+                                  return Center(
+                                    child: Text(
+                                      'Letra de ${data['source']}',
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: colors.onSurfaceVariant
+                                                .withValues(alpha: .6),
+                                          ),
+                                    ),
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              },
+                            ),
+                            Positioned(
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              height: 28,
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        colors.surface,
+                                        colors.surface.withValues(alpha: 0),
+                                      ],
                                     ),
                                   ),
-                                );
-                              }
-                              return const SizedBox.shrink();
-                            },
-                          ),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              height: 34,
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.bottomCenter,
+                                      end: Alignment.topCenter,
+                                      colors: [
+                                        colors.surface,
+                                        colors.surface.withValues(alpha: 0),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     },
@@ -358,23 +407,19 @@ class _LyricsSheetState extends ConsumerState<LyricsSheet> {
               ],
             ),
           ),
-        ),
-      );
-    },
-  );
+        );
+      },
+    );
   }
 
-  void _scrollToLine(int index, ScrollController controller) {
-    if (index < 0) return;
-    const itemHeight = 56.0;
-    final viewport = controller.position.viewportDimension;
-    final maxExtent = controller.position.maxScrollExtent;
-    if (maxExtent <= 0) return;
-    var target = (index * itemHeight).toDouble();
-    target = (target - viewport * 0.35).clamp(0.0, maxExtent);
-    controller.animateTo(
-      target,
-      duration: const Duration(milliseconds: 280),
+  void _scrollToLine(int index) {
+    if (index < 0 || index >= _lineKeys.length) return;
+    final lineContext = _lineKeys[index].currentContext;
+    if (lineContext == null) return;
+    Scrollable.ensureVisible(
+      lineContext,
+      alignment: .35,
+      duration: const Duration(milliseconds: 420),
       curve: Curves.easeOutCubic,
     );
   }
@@ -413,6 +458,7 @@ class _SyncBadge extends StatelessWidget {
 
 class _LyricLine extends StatelessWidget {
   const _LyricLine({
+    super.key,
     required this.text,
     required this.timed,
     required this.active,
@@ -432,6 +478,7 @@ class _LyricLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final alpha = !timed
         ? .84
         : active
@@ -445,21 +492,35 @@ class _LyricLine extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: AnimatedDefaultTextStyle(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        textAlign: TextAlign.center,
-        style: theme.textTheme.headlineSmall!.copyWith(
-          height: 1.3,
-          fontSize: active ? 29 : 23,
-          fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-          letterSpacing: active ? -.5 : -.1,
-          color: colors.onSurface.withValues(alpha: alpha),
-          shadows: active
-              ? [Shadow(color: accent.withValues(alpha: .24), blurRadius: 10)]
-              : null,
+      child: AnimatedOpacity(
+        opacity: alpha,
+        duration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 180),
+        child: AnimatedScale(
+          scale: reduceMotion
+              ? 1
+              : active
+              ? 1.08
+              : distance == 1
+              ? .98
+              : .94,
+          duration: reduceMotion
+              ? Duration.zero
+              : const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.headlineSmall!.copyWith(
+              height: 1.3,
+              fontSize: 23,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -.2,
+              color: colors.onSurface,
+            ),
+          ),
         ),
-        child: Text(text),
       ),
     );
   }

@@ -20,6 +20,7 @@ class AppConstants {
   static const sortFavoritesKey = 'sort_favorites';
   static const sortHistoryKey = 'sort_history';
   static const sortDownloadsKey = 'sort_downloads';
+  static const glassQualityKey = 'glassQuality';
 
   /// Espacio inferior que deben dejar las pestañas para que el contenido no
   /// quede oculto bajo la barra flotante y el mini reproductor.

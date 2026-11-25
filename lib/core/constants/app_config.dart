@@ -7,8 +7,8 @@ class AppConfig {
   AppConfig._();
 
   static const appName = 'Simple Music';
-  static const version = '2.5.6';
-  static const buildNumber = 17;
+  static const version = '3.0.0';
+  static const buildNumber = 18;
 
   /// Versión en formato `version+build`, igual que en `pubspec.yaml`.
   static const versionLabel = '$version+$buildNumber';

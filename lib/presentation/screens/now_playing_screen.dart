@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -9,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/utils/artwork_url.dart';
+import '../../core/theme/glass/glass_components.dart' as glass;
 import '../../data/models/song_model.dart';
 import '../../providers/downloads_providers.dart';
 import '../../providers/library_providers.dart';
@@ -656,6 +656,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
 
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final accent =
         ref.watch(albumArtColorProvider.select((state) => state.valueOrNull)) ??
         colors.primary;
@@ -688,29 +689,28 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             children: [
               if (song.artworkUrl != null)
                 RepaintBoundary(
-                  child: ImageFiltered(
-                    // Un desenfoque menor mantiene la estética y evita que la
-                    // GPU trabaje de más en pantallas grandes.
-                    imageFilter: ImageFilter.blur(sigmaX: 36, sigmaY: 36),
-                    child: CachedNetworkImage(
-                      imageUrl:
-                          artworkUrlForSize(
-                            song.thumbnailUrl ?? song.artworkUrl,
-                            targetSize: 320,
-                          ) ??
-                          song.artworkUrl!,
-                      fit: BoxFit.cover,
-                      memCacheWidth: 320,
-                      maxWidthDiskCache: 320,
-                      filterQuality: FilterQuality.low,
-                      fadeInDuration: const Duration(milliseconds: 180),
-                      errorWidget: (context, url, error) =>
-                          ColoredBox(color: immersiveBase),
-                    ),
+                  child: CachedNetworkImage(
+                    imageUrl:
+                        artworkUrlForSize(
+                          song.thumbnailUrl ?? song.artworkUrl,
+                          targetSize: 64,
+                        ) ??
+                        song.artworkUrl!,
+                    fit: BoxFit.cover,
+                    memCacheWidth: 64,
+                    maxWidthDiskCache: 64,
+                    filterQuality: FilterQuality.medium,
+                    fadeInDuration: reduceMotion
+                        ? Duration.zero
+                        : const Duration(milliseconds: 180),
+                    errorWidget: (context, url, error) =>
+                        ColoredBox(color: immersiveBase),
                   ),
                 ),
               AnimatedContainer(
-                duration: const Duration(milliseconds: 650),
+                duration: reduceMotion
+                    ? Duration.zero
+                    : const Duration(milliseconds: 650),
                 curve: Curves.easeInOutCubic,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -802,7 +802,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                     }
                                   },
                                   child: AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 300),
+                                    duration: reduceMotion
+                                        ? Duration.zero
+                                        : const Duration(milliseconds: 300),
                                     switchInCurve: Curves.easeOutCubic,
                                     switchOutCurve: Curves.easeInCubic,
                                     transitionBuilder: (child, animation) =>
@@ -879,9 +881,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                                   children: [
                                     Expanded(
                                       child: AnimatedSwitcher(
-                                        duration: const Duration(
-                                          milliseconds: 260,
-                                        ),
+                                        duration: reduceMotion
+                                            ? Duration.zero
+                                            : const Duration(milliseconds: 260),
                                         transitionBuilder: (child, animation) =>
                                             FadeTransition(
                                               opacity: animation,
@@ -1128,49 +1130,18 @@ class _GlassIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.white.withValues(alpha: active ? .17 : .08),
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: () {
-            HapticFeedback.selectionClick();
-            onPressed();
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white.withValues(alpha: active ? .18 : .10),
-              ),
-            ),
-            child: Center(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                transitionBuilder: (child, animation) => ScaleTransition(
-                  scale: animation,
-                  child: FadeTransition(opacity: animation, child: child),
-                ),
-                child: Icon(
-                  icon,
-                  key: ValueKey(icon),
-                  size: iconSize,
-                  color:
-                      iconColor ??
-                      Colors.white.withValues(alpha: active ? 1 : .84),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+    return glass.GlassIconButton(
+      label: tooltip,
+      icon: icon,
+      onPressed: () {
+        HapticFeedback.selectionClick();
+        onPressed();
+      },
+      size: size,
+      iconSize: iconSize,
+      active: active,
+      iconColor: iconColor ?? Colors.white.withValues(alpha: active ? 1 : .84),
+      surfaceTint: const Color(0xFF11151D),
     );
   }
 }

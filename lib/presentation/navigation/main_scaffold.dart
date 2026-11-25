@@ -1,11 +1,15 @@
-import 'dart:ui';
+import 'dart:ui' show FrameTiming;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/navigation_providers.dart';
 import '../../providers/player_providers.dart';
+import '../../core/theme/glass/glass_surface.dart';
+import '../../core/theme/glass/glass_quality.dart';
+import '../../core/theme/glass/glass_components.dart';
 import '../screens/home_screen.dart';
 import '../screens/library_screen.dart';
 import '../screens/search_screen.dart';
@@ -21,6 +25,65 @@ class MainScaffold extends ConsumerStatefulWidget {
 
 class _MainScaffoldState extends ConsumerState<MainScaffold> {
   final Set<int> _visitedTabs = {0};
+  int _slowFrameCount = 0;
+  int _fastFrameCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addTimingsCallback(_onFrameTimings);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeTimingsCallback(_onFrameTimings);
+    super.dispose();
+  }
+
+  void _onFrameTimings(List<FrameTiming> timings) {
+    if (!mounted || ref.read(glassQualityProvider) != GlassQuality.automatic) {
+      return;
+    }
+    for (final timing in timings) {
+      final slow =
+          timing.buildDuration > const Duration(milliseconds: 16) ||
+          timing.rasterDuration > const Duration(milliseconds: 16);
+      if (slow) {
+        _slowFrameCount++;
+        _fastFrameCount = 0;
+      } else {
+        _fastFrameCount++;
+        _slowFrameCount = 0;
+      }
+      if (_slowFrameCount >= 12) {
+        _slowFrameCount = 0;
+        final current = ref.read(adaptiveGlassQualityProvider);
+        final next = switch (current) {
+          GlassQuality.high => GlassQuality.medium,
+          GlassQuality.medium => GlassQuality.low,
+          _ => GlassQuality.off,
+        };
+        if (next != current) {
+          ref.read(adaptiveGlassQualityProvider.notifier).state = next;
+          if (kDebugMode) {
+            debugPrint(
+              'GlassQuality adaptó a ${next.label} por frames lentos.',
+            );
+          }
+        }
+      } else if (_fastFrameCount >= 300) {
+        _fastFrameCount = 0;
+        final current = ref.read(adaptiveGlassQualityProvider);
+        final next = switch (current) {
+          GlassQuality.off => GlassQuality.low,
+          GlassQuality.low => GlassQuality.medium,
+          GlassQuality.medium => GlassQuality.high,
+          _ => GlassQuality.high,
+        };
+        ref.read(adaptiveGlassQualityProvider.notifier).state = next;
+      }
+    }
+  }
 
   Widget _pageFor(int index) => switch (index) {
     0 => const HomeScreen(),
@@ -76,10 +139,13 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
       if (message == null) return;
       ScaffoldMessenger.maybeOf(context)
         ?..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(message)));
+        ..showSnackBar(GlassSnackBar.create(content: Text(message)));
     });
     final theme = Theme.of(context);
     final media = MediaQuery.of(context);
+    final motionDuration = media.disableAnimations
+        ? Duration.zero
+        : const Duration(milliseconds: 240);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value:
           (theme.brightness == Brightness.dark
@@ -122,7 +188,7 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
             children: [
               TweenAnimationBuilder<double>(
                 tween: Tween<double>(begin: 0, end: _navVisible ? 0 : 74),
-                duration: const Duration(milliseconds: 240),
+                duration: motionDuration,
                 curve: Curves.easeOutCubic,
                 builder: (context, offset, child) => Transform.translate(
                   offset: Offset(0, offset),
@@ -133,12 +199,14 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
               const SizedBox(height: 8),
               AnimatedSlide(
                 offset: _navVisible ? Offset.zero : const Offset(0, 1.6),
-                duration: const Duration(milliseconds: 240),
+                duration: motionDuration,
                 curve: Curves.easeOutCubic,
                 child: AnimatedOpacity(
                   opacity: _navVisible ? 1 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  child: _GlassSurface(
+                  duration: media.disableAnimations
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  child: GlassSurface(
                     radius: 26,
                     child: SizedBox(
                       height: 68,
@@ -229,13 +297,16 @@ class _NavDockItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final activeColor = colors.onPrimary;
     return Semantics(
       label: label,
       selected: selected,
       button: true,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 280),
+        duration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 280),
         curve: Curves.easeOutCubic,
         width: 52,
         height: 52,
@@ -261,74 +332,36 @@ class _NavDockItem extends StatelessWidget {
                 ]
               : null,
         ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(18),
-            onTap: () {
-              HapticFeedback.selectionClick();
-              onTap();
-            },
-            child: Center(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                transitionBuilder: (child, animation) => ScaleTransition(
-                  scale: animation,
-                  child: FadeTransition(opacity: animation, child: child),
-                ),
-                child: Icon(
-                  selected ? selectedIcon : icon,
-                  key: ValueKey(selected),
-                  size: 23,
-                  color: selected
-                      ? activeColor
-                      : colors.onSurfaceVariant.withValues(alpha: .78),
+        child: Tooltip(
+          message: label,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () {
+                HapticFeedback.selectionClick();
+                onTap();
+              },
+              child: Center(
+                child: AnimatedSwitcher(
+                  duration: reduceMotion
+                      ? Duration.zero
+                      : const Duration(milliseconds: 200),
+                  transitionBuilder: (child, animation) => ScaleTransition(
+                    scale: animation,
+                    child: FadeTransition(opacity: animation, child: child),
                   ),
+                  child: Icon(
+                    selected ? selectedIcon : icon,
+                    key: ValueKey(selected),
+                    size: 23,
+                    color: selected
+                        ? activeColor
+                        : colors.onSurfaceVariant.withValues(alpha: .78),
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Superficie tipo "glass": blur del contenido que pasa por detrás, tinte
-/// semitransparente, borde suave y sombra flotante.
-class _GlassSurface extends StatelessWidget {
-  const _GlassSurface({required this.radius, required this.child});
-
-  final double radius;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(radius),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: dark ? .38 : .12),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface.withValues(alpha: .82),
-              borderRadius: BorderRadius.circular(radius),
-              border: Border.all(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: .35),
-              ),
-            ),
-            child: child,
           ),
         ),
       ),

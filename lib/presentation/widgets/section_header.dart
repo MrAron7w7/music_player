@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/glass/glass_components.dart';
+
 class SectionHeader extends StatelessWidget {
   const SectionHeader(
     this.title, {
@@ -52,7 +54,14 @@ class SectionHeader extends StatelessWidget {
           ),
           if (trailing != null) trailing!,
           if (action.isNotEmpty)
-            TextButton(onPressed: onTap, child: Text(action)),
+            GlassPill(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: TextButton(
+                style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                onPressed: onTap,
+                child: Text(action),
+              ),
+            ),
         ],
       ),
     );
